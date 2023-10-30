@@ -20,13 +20,15 @@ def get_arch():
 def get_machine():
     return platform.machine()
 
-def init_logger():
+
+def create_logger():
     os.makedirs(get_logs_dir(), exist_ok=True)
+
     log_format = '[%(asctime)s] [%(levelname)s] %(message)s'
 
     # Create a console handler
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)  # Adjust the log level as needed
+    console_handler.setLevel(logging.INFO)
     console_formatter = logging.Formatter(log_format)
     console_handler.setFormatter(console_formatter)
 
@@ -37,4 +39,6 @@ def init_logger():
     file_formatter = logging.Formatter(log_format)
     file_handler.setFormatter(file_formatter)
 
+    # Add handlers to the logger
     logging.basicConfig(level=logging.DEBUG, handlers=[console_handler, file_handler])
+

@@ -2,10 +2,11 @@
 # 'True', courses will only be added to the planner. It is
 # recommended you do not enable real registrations until you
 # are certain that everything is working as intended.
+# To enable REAL registrations, set this to 'False'.
 # Accepted values are:
 # - True
 # - False
-planner-mode: True
+planner-mode: False
 
 # Kerberos Username: this is most likely the 'user' part of your
 #  user@bu.edu email.

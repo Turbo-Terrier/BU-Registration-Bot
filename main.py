@@ -8,11 +8,11 @@ from registrar import Registrar, Status
 
 
 def main() -> int:
-    # init the logger
-    util.init_logger()
+    # setup logger
+    util.create_logger()
 
     # load config
-    logging.debug('Loading program config...')
+    logging.info('Loading program config...')
     try:
         config = Configurations('./config.yaml')
     except SyntaxError as e:
@@ -31,7 +31,7 @@ def main() -> int:
         return 1
     registrar.navigate()
     if registrar.find_courses() == Status.SUCCESS:
-        logging.debug('Successfully registered for all courses :)')
+        logging.info('Successfully registered for all courses :)')
     return 0
 
 

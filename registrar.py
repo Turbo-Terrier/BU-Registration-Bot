@@ -99,7 +99,7 @@ class Registrar():
 
         username, password = self.credentials
 
-        logging.debug(F'Logging in into {username}\'s account...!')
+        logging.info(F'Logging into {username}\'s account...!')
 
         self.driver.get(f"{STUDENT_LINK_URL}?ModuleName=regsched.pl")
         self.driver.find_element(By.ID, 'j_username').send_keys(username)
@@ -116,7 +116,7 @@ class Registrar():
         while 'studentlink' not in self.driver.current_url:
             if 'duosecurity' in self.driver.current_url:
                 if not duo_messaged:
-                    logging.debug('Waiting for you to approve this login on Duo...')
+                    logging.info('Waiting for you to approve this login on Duo...')
                     duo_messaged = True
                 # if duo login false, we fail
                 status = self.__duo_login()
@@ -125,7 +125,7 @@ class Registrar():
                 # wait a couple sec
                 time.sleep(2)
 
-        logging.debug(F'Successfully logged into {username}\'s account!')
+        logging.info(F'Successfully logged into {username}\'s account!')
         return Status.SUCCESS
 
     #TODO: get a list of registered courses and remove them from the list of courses
@@ -157,20 +157,20 @@ class Registrar():
         while len(self.target_courses) != 0:  # keep trying until all courses are registered
             for course in self.target_courses:
                 duration = (time.time() - start)
-                logging.debug(f'Running since the past {round(duration/60/60, 2)} hours...')
+                logging.info(f'Running since the past {round(duration/60/60, 2)} hours...')
                 result = self.__find_course(course)
                 if result == Status.SUCCESS:
                     self.target_courses.remove(course)
-                    logging.debug(F'Successfully registered for {course}!')
+                    logging.info(F'Successfully registered for {course}!')
                 elif result == Status.FAILURE:
                     continue # NEVER SURRENDER!!
                 else:
                     logging.critical('Irrecoverable error occurred. Exiting...')
                     exit(1)
                 time.sleep(0.5) # can't have bu get mad at us for spamming them too hard <3
-            logging.debug('--------------------------')
-            logging.debug(f'{(original_len - len(self.target_courses))}/{original_len} courses have been registered for!')
-            logging.debug('--------------------------')
+            logging.info('--------------------------')
+            logging.info(f'{(original_len - len(self.target_courses))}/{original_len} courses have been registered for!')
+            logging.info('--------------------------')
             cycles += 1
 
         self.driver.close() # we are done!
@@ -221,9 +221,9 @@ class Registrar():
         except (NoSuchElementException, StaleElementReferenceException) as e:
             # if we got logged out log back in
             if self.driver.title == 'Boston University | Login':
-                logging.warning('Oops. We got logged out. Logging back in...!')
+                logging.warning('Oops. We got logged out. Attempting to log back in...!')
                 if self.login() != Status.SUCCESS:
-                    logging.critical('Relogin failed...! We cannot continue.')
+                    logging.critical('Re-login failed...! We cannot continue.')
                     return Status.ERROR
             else:
                 # if something else happened, increment the error counter and try again
