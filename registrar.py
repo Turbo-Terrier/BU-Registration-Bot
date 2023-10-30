@@ -1,21 +1,15 @@
+import re
+import time
 from enum import Enum
 from typing import List, Tuple
 
-import requests
-import re
 from selenium import webdriver
-import time
-
 from selenium.common import NoSuchElementException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 
 STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
-#url = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl/1524289373'
-
-#https://www.bu.edu/link/bin/uiscgi_studentlink.pl/1698625493?ModuleName=reg%2Fplan%2F_start.pl&ViewSem=Spring%202024&KeySem=20244
-#https://www.bu.edu/link/bin/uiscgi_studentlink.pl/1698625493?ModuleName=reg%2Fadd%2F_start.pl&ViewSem=Spring%202024&KeySem=20244
 
 season_to_key = {
     'spring': 4,
@@ -41,7 +35,7 @@ class Registrar():
 
     def __init__(self, planner: bool, season: str, year: int, target_courses: List[Tuple[str, str, str, str]]):
         chrome_options = Options()
-        #chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--headless")
         self.driver = webdriver.Chrome(chrome_options)
         self.driver.set_page_load_timeout(30)
         self.is_planner = planner
@@ -53,7 +47,7 @@ class Registrar():
 
     def login(self, credentials: Tuple[str, str]) -> Status:
         print('Logging in...')
-        self.driver.get("https://www.bu.edu/link/bin/uiscgi_studentlink.pl?ModuleName=regsched.pl")
+        self.driver.get(f"{STUDENT_LINK_URL}?ModuleName=regsched.pl")
         username, password = credentials
         self.driver.find_element(By.ID, 'j_username').send_keys(username)
         self.driver.find_element(By.ID, 'j_password').send_keys(password)
@@ -96,7 +90,7 @@ class Registrar():
     Otherwise it will prevent registration with a misleading error. AHAHA SUCK IT!
     """
     def navigate(self):
-        self.driver.get(f'https://www.bu.edu/link/bin/uiscgi_studentlink.pl?ModuleName=reg/option/_start.pl&ViewSem={self.season}%20{self.year}&KeySem={self.semester_key}')
+        self.driver.get(f'{STUDENT_LINK_URL}?ModuleName=reg/option/_start.pl&ViewSem={self.season}%20{self.year}&KeySem={self.semester_key}')
         rows = self.driver.find_element(By.TAG_NAME, 'tbody').find_elements(By.XPATH, '//tr[@align="center" and @valign="top"]')
         plan = rows[0]
         register = rows[1]
@@ -111,6 +105,7 @@ class Registrar():
     Sometimes course names are wrong, use at your own discretion. 
     '''
     def find_courses(self) -> Status.SUCCESS:
+        start = time.time()
         cycles = 0
         if len(self.target_courses) == 0:
             print("Error! You haven't specified any target courses")
@@ -118,7 +113,8 @@ class Registrar():
         original_len = len(self.target_courses)
         while len(self.target_courses) != 0:  # keep trying forever!
             for course in self.target_courses:
-                print('\n[' + str(time.asctime()) + ']')
+                duration = (time.time() - start)
+                print(f'\n[{time.asctime()}] [Current Runtime: {round(duration/60/60, 2)} hours]')
                 result = self.__find_course(course)
                 if result == Status.SUCCESS:
                     self.target_courses.remove(course)
@@ -128,7 +124,9 @@ class Registrar():
                 else:
                     print('Irrecoverable error occurred. Exiting...')
                     exit(1)
+            print('----------------')
             print(f'{(original_len - len(self.target_courses))}/{original_len} courses have been registered for!')
+            print('----------------')
             cycles += 1
             time.sleep(2)  # can't have bu get mad at us for spamming them <3
 
@@ -197,9 +195,6 @@ class Registrar():
 
     def generate_reg_params(self, college, dept, course, section, ssid):
         return {
-            # https://www.bu.edu/link/bin/uiscgi_studentlink.pl/1698611414?SelectIt=0001186336&College=CAS&Dept=CS&Course=111&Section=C2&ModuleName=reg%2Fplan%2Fadd_planner.pl&AddPreregInd=&AddPlannerInd=Y&ViewSem=Spring+2024&KeySem=20244
-            # https://www.bu.edu/link/bin/uiscgi_studentlink.pl/1698611414?SelectIt=0001186336&College=CAS&Dept=CS&Course=111&Section=C2&ModuleName=reg%2Fplan%2Fadd_planner.pl&AddPreregInd=&AddPlannerInd=Y&ViewSem=Spring+2024&KeySem=20244
-            # SelectIt=0001186336&College=CAS&Dept=CS&Course=111&Section=C2&ModuleName=reg%2Fplan%2Fadd_planner.pl&AddPreregInd=&AddPlannerInd=Y&ViewSem=Spring+2024&KeySem=20244&PreregViewSem=&PreregKeySem=&SearchOptionCd=S&SearchOptionDesc=Class+Number&MainCampusInd=&BrowseContinueInd=&ShoppingCartInd=&ShoppingCartList=
                 'SelectIt': ssid,
                 'College': college.upper(),
                 'Dept': dept.upper(),
