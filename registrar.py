@@ -91,8 +91,12 @@ class Registrar():
         except Exception:
             return Status.ERROR
 
-    def login(self) -> Status:
+    def login(self, override_credentials=None) -> Status:
         print('Logging in...')
+
+        if override_credentials is not None:
+            self.credentials = override_credentials
+
         self.driver.get(f"{STUDENT_LINK_URL}?ModuleName=regsched.pl")
         username, password = self.credentials
         self.driver.find_element(By.ID, 'j_username').send_keys(username)
@@ -213,7 +217,9 @@ class Registrar():
             # if we got logged out log back in
             if self.driver.title == 'Boston University | Login':
                 print('Oops. We got logged out. Logging back in...!')
-                self.login()
+                if self.login() != Status.SUCCESS:
+                    print('Relogin failed...!')
+                    return Status.ERROR
             else:
                 # if something else happened, thats RKO
                 print('Unexpected page. Something went wrong. Dumping page...')

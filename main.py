@@ -47,7 +47,7 @@ if __name__ == "__main__":
     registrar = Registrar(creds, test_mode, season, year, my_courses)
     while registrar.login() != Status.SUCCESS:
         print('Hmm... Lets try that again...')
-        registrar.login(credentials())
+        registrar.login(override_credentials=credentials())
     registrar.navigate()
     if registrar.find_courses() == Status.SUCCESS:
         print('Successfully registered for all courses :)')
