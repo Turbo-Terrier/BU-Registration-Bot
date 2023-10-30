@@ -42,10 +42,10 @@ def semester() -> Tuple[str, int]:
         return season, year
 
 if __name__ == "__main__":
-    season, year = ('Spring', 2024) #semester()
+    season, year = semester()
     creds = credentials()
-    registrar = Registrar(test_mode, season, year, my_courses)
-    while registrar.login(creds) != Status.SUCCESS:
+    registrar = Registrar(creds, test_mode, season, year, my_courses)
+    while registrar.login() != Status.SUCCESS:
         print('Hmm... Lets try that again...')
         registrar.login(credentials())
     registrar.navigate()

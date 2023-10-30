@@ -32,8 +32,9 @@ class Registrar():
     season: str
     year: int
     semester_key: str
+    credentials: Tuple[str, str]
 
-    def __init__(self, planner: bool, season: str, year: int, target_courses: List[Tuple[str, str, str, str]]):
+    def __init__(self, credentials: Tuple[str, str], planner: bool, season: str, year: int, target_courses: List[Tuple[str, str, str, str]]):
         if platform.system() == 'Linux':
             print('Linux mode activated...')
             from pyvirtualdisplay import Display
@@ -55,11 +56,45 @@ class Registrar():
         self.season = season.capitalize()
         self.year = year
         self.semester_key = str(year) + str(season_to_key[season.lower()])
+        self.credentials = credentials
 
-    def login(self, credentials: Tuple[str, str]) -> Status:
+    def __duo_login(self):
+
+        try:
+            # also check if Duo has timed us out...
+            failure_elements = self.driver.find_elements(By.ID, 'error-view-header-text')
+            if len(failure_elements) > 0:
+                text = failure_elements[0].text
+                if text == 'Duo Push timed out':
+                    # start over
+                    print('Oops, Duo Pushed timed out!')
+                    self.driver.close()
+                    return Status.FAILURE
+            # trust browser so we can log back in without duo when BU times us out
+            dont_trust_elements = self.driver.find_elements(By.ID, 'trust-browser-button')
+            if len(dont_trust_elements) > 0:
+                dont_trust_elements[0].click()
+        except NoSuchElementException:
+            print('Unexpected page. Something went wrong. Dumping page...')
+            print(self.driver.page_source)
+            return Status.ERROR
+
+    """
+    NOTE: Intended only for testing
+    """
+    def logout(self) -> Status:
+        try:
+            self.driver.get(f"{STUDENT_LINK_URL}?ModuleName=regsched.pl")
+            logout_button = self.driver.find_element(By.XPATH, '//a/img[@src="https://www.bu.edu/link/student/images/header_logoff.gif"]')
+            logout_button.click()
+            return Status.SUCCESS
+        except Exception:
+            return Status.ERROR
+
+    def login(self) -> Status:
         print('Logging in...')
         self.driver.get(f"{STUDENT_LINK_URL}?ModuleName=regsched.pl")
-        username, password = credentials
+        username, password = self.credentials
         self.driver.find_element(By.ID, 'j_username').send_keys(username)
         self.driver.find_element(By.ID, 'j_password').send_keys(password)
         self.driver.find_element(By.CLASS_NAME, 'input-submit').click()
@@ -76,20 +111,10 @@ class Registrar():
                 if not duo_messaged:
                     print('Waiting for you to approve this login on Duo...')
                     duo_messaged = True
-                # also check if Duo has timed us out...
-                failure_elements = self.driver.find_elements(By.ID, 'error-view-header-text')
-                if len(failure_elements) > 0:
-                    text = failure_elements[0].text
-                    if text == 'Duo Push timed out':
-                        # start over
-                        print('Oops, Duo Pushed timed out!')
-                        self.driver.close()
-                        return Status.ERROR
-                # once login is approved, Duo asks whether to "trust" this device.
-                # we are paranoid people so we answer 'no'
-                dont_trust_elements = self.driver.find_elements(By.ID, 'dont-trust-browser-button')
-                if len(dont_trust_elements) > 0:
-                    dont_trust_elements[0].click()
+                # if duo login false, we fail
+                status = self.__duo_login()
+                if status == Status.FAILURE or status == Status.ERROR:
+                    return status
                 # wait a couple sec
                 time.sleep(2)
 
@@ -135,7 +160,7 @@ class Registrar():
                 else:
                     print('Irrecoverable error occurred. Exiting...')
                     exit(1)
-                time.sleep(1.5) # can't have bu get mad at us for spamming them too hard <3
+                time.sleep(0.75) # can't have bu get mad at us for spamming them too hard <3
             print('----------------')
             print(f'{(original_len - len(self.target_courses))}/{original_len} courses have been registered for!')
             print('----------------')
@@ -150,37 +175,50 @@ class Registrar():
         url_with_params = f"{STUDENT_LINK_URL}?{'&'.join([f'{key}={value}' for key, value in params_browse.items()])}"
         self.driver.get(url_with_params)
 
-        tr_elements = self.driver.find_element(By.NAME, 'SelectForm')\
-            .find_element(By.TAG_NAME, 'table')\
-            .find_element(By.TAG_NAME, 'tbody')\
-            .find_elements(By.TAG_NAME, 'tr')
+        try:
+            tr_elements = self.driver.find_element(By.NAME, 'SelectForm')\
+                .find_element(By.TAG_NAME, 'table')\
+                .find_element(By.TAG_NAME, 'tbody')\
+                .find_elements(By.TAG_NAME, 'tr')
 
-        found = False
-        for tr_element in tr_elements:
-            if len(tr_element.find_elements(By.TAG_NAME, 'td')) < 11:
-                continue
-            course_name_tag = tr_element.find_elements(By.TAG_NAME, 'td')[2]
-            course_id_tag = tr_element.find_elements(By.TAG_NAME, 'td')[0]
-            if course_name_tag.text == college.upper() + ' ' + dept.upper() + course + ' ' + section.upper():
-                found = True
-                try:
-                    course_id_tag.find_element(By.CSS_SELECTOR, "input[name='SelectIt']").click()
-                    button = self.driver.find_element(By.XPATH, "//input[@type='button']")
-                    button.click()
-                    # real registration requires accepting an alert
-                    if not self.is_planner:
-                        alert = self.driver.switch_to.alert
-                        alert.accept()
-                    o = re.search('<title>Error</title>', self.driver.page_source)
-                    if o:
-                        print(f'Can not register yet for {name}...')
-                    else:
-                        return Status.SUCCESS
-                except NoSuchElementException:
-                    print(f"Can not register yet for {name} because registration is blocked (full class?)")
+            found = False
 
-        if not found:
-            print('could not find course')
+            for tr_element in tr_elements:
+                if len(tr_element.find_elements(By.TAG_NAME, 'td')) < 11:
+                    continue
+                course_name_tag = tr_element.find_elements(By.TAG_NAME, 'td')[2]
+                course_id_tag = tr_element.find_elements(By.TAG_NAME, 'td')[0]
+                if course_name_tag.text == college.upper() + ' ' + dept.upper() + course + ' ' + section.upper():
+                    found = True
+                    try:
+                        course_id_tag.find_element(By.CSS_SELECTOR, "input[name='SelectIt']").click()
+                        button = self.driver.find_element(By.XPATH, "//input[@type='button']")
+                        button.click()
+                        # real registration requires accepting an alert
+                        if not self.is_planner:
+                            alert = self.driver.switch_to.alert
+                            alert.accept()
+                        o = re.search('<title>Error</title>', self.driver.page_source)
+                        if o:
+                            print(f'Can not register yet for {name}...')
+                        else:
+                            return Status.SUCCESS
+                    except NoSuchElementException:
+                        print(f"Can not register yet for {name} because registration is blocked (full class?)")
+
+            if not found:
+                print('could not find course')
+
+        except NoSuchElementException:
+            # if we got logged out log back in
+            if self.driver.title == 'Boston University | Login':
+                print('Oops. We got logged out. Logging back in...!')
+                self.login()
+            else:
+                # if something else happened, thats RKO
+                print('Unexpected page. Something went wrong. Dumping page...')
+                print(self.driver.page_source)
+                return Status.ERROR
 
         return Status.FAILURE
 
