@@ -1,3 +1,4 @@
+import logging
 import platform
 import re
 import time
@@ -8,6 +9,8 @@ from selenium import webdriver
 from selenium.common import NoSuchElementException, StaleElementReferenceException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
+
+import util
 
 STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
 RETRY_LIMIT = 3
@@ -36,10 +39,13 @@ class Registrar():
     credentials: Tuple[str, str]
 
     error_counter: int = 0 # for tracking errors, if too many successive errors happen, we exit
+    logger: logging.Logger
 
     def __init__(self, credentials: Tuple[str, str], planner: bool, season: str, year: int, target_courses: List[Tuple[str, str, str, str]]):
+        self.logger = util.get_logger()
+
         if platform.system() == 'Linux':
-            print('Linux mode activated...')
+            self.logger.debug('Linux mode activated...')
             from pyvirtualdisplay import Display
             display = Display(visible=0, size=(800, 600))
             display.start()
@@ -48,8 +54,7 @@ class Registrar():
         options.add_argument('--headless')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
-        #TODO
-        #service = Service(executable_path=util.get_driver_path())
+
         service = Service(
             executable_path="/usr/lib/chromium-browser/chromedriver") if platform.system() == "Linux" else Service()
 
@@ -72,7 +77,7 @@ class Registrar():
                 text = failure_elements[0].text
                 if text == 'Duo Push timed out':
                     # start over
-                    print('Oops, Duo Pushed timed out!')
+                    self.logger.warning('Oops, Duo Pushed timed out!')
                     self.driver.close()
                     return Status.FAILURE
             # trust browser so we can log back in without duo when BU times us out
@@ -80,8 +85,8 @@ class Registrar():
             if len(dont_trust_elements) > 0:
                 dont_trust_elements[0].click()
         except NoSuchElementException:
-            print('Unexpected page. Something went wrong. Dumping page...')
-            print(self.driver.page_source)
+            self.logger.critical('Unexpected page. Something went wrong. Dumping page...')
+            self.logger.critical(self.driver.page_source)
             return Status.ERROR
 
     """
@@ -97,20 +102,22 @@ class Registrar():
             return Status.ERROR
 
     def login(self, override_credentials=None) -> Status:
-        print('Logging in...')
 
         if override_credentials is not None:
             self.credentials = override_credentials
 
-        self.driver.get(f"{STUDENT_LINK_URL}?ModuleName=regsched.pl")
         username, password = self.credentials
+
+        self.logger.debug(F'Logging in into {username}\'s account...!')
+
+        self.driver.get(f"{STUDENT_LINK_URL}?ModuleName=regsched.pl")
         self.driver.find_element(By.ID, 'j_username').send_keys(username)
         self.driver.find_element(By.ID, 'j_password').send_keys(password)
         self.driver.find_element(By.CLASS_NAME, 'input-submit').click()
 
         bad_user_elems = self.driver.find_elements(By.CLASS_NAME, 'error-box')
         if len(bad_user_elems) > 0:
-            print('Error:', bad_user_elems[0].find_element(By.CLASS_NAME, 'error').text)
+            self.logger.critical('Error:', bad_user_elems[0].find_element(By.CLASS_NAME, 'error').text)
             self.driver.close()
             return Status.ERROR
 
@@ -118,7 +125,7 @@ class Registrar():
         while 'studentlink' not in self.driver.current_url:
             if 'duosecurity' in self.driver.current_url:
                 if not duo_messaged:
-                    print('Waiting for you to approve this login on Duo...')
+                    self.logger.debug('Waiting for you to approve this login on Duo...')
                     duo_messaged = True
                 # if duo login false, we fail
                 status = self.__duo_login()
@@ -127,7 +134,7 @@ class Registrar():
                 # wait a couple sec
                 time.sleep(2)
 
-        print('Successfully Logged in!')
+        self.logger.debug(F'Successfully logged into {username}\'s account!')
         return Status.SUCCESS
 
     #TODO: get a list of registered courses and remove them from the list of courses
@@ -154,27 +161,25 @@ class Registrar():
     def find_courses(self) -> Status.SUCCESS:
         start = time.time()
         cycles = 0
-        if len(self.target_courses) == 0:
-            print("Error! You haven't specified any target courses")
-            return Status.ERROR
         original_len = len(self.target_courses)
-        while len(self.target_courses) != 0:  # keep trying forever!
+
+        while len(self.target_courses) != 0:  # keep trying until all courses are registered
             for course in self.target_courses:
                 duration = (time.time() - start)
-                print(f'\n[{time.asctime()}] [Current Runtime: {round(duration/60/60, 2)} hours]')
+                self.logger.debug(f'Running since the past {round(duration/60/60, 2)} hours...')
                 result = self.__find_course(course)
                 if result == Status.SUCCESS:
                     self.target_courses.remove(course)
-                    print(F'Successfully registered for {course}')
+                    self.logger.debug(F'Successfully registered for {course}!')
                 elif result == Status.FAILURE:
                     continue # NEVER SURRENDER!!
                 else:
-                    print('Irrecoverable error occurred. Exiting...')
+                    self.logger.critical('Irrecoverable error occurred. Exiting...')
                     exit(1)
                 time.sleep(0.5) # can't have bu get mad at us for spamming them too hard <3
-            print('----------------')
-            print(f'{(original_len - len(self.target_courses))}/{original_len} courses have been registered for!')
-            print('----------------')
+            self.logger.debug('--------------------------')
+            self.logger.debug(f'{(original_len - len(self.target_courses))}/{original_len} courses have been registered for!')
+            self.logger.debug('--------------------------')
             cycles += 1
 
         self.driver.close() # we are done!
@@ -211,23 +216,23 @@ class Registrar():
                             alert.accept()
                         o = re.search('<title>Error</title>', self.driver.page_source)
                         if o:
-                            print(f'Can not register yet for {name}...')
+                            self.logger.warning(f'Can not register yet for {name}...')
                         else:
                             return Status.SUCCESS
                     except NoSuchElementException:
-                        print(f"Can not register yet for {name} because registration is blocked (full class?)")
+                        self.logger.warning(f"Can not register yet for {name} because registration is blocked (full class?)")
 
                     self.error_counter = 0 # reset error counter
 
             if not found:
-                print('could not find course')
+                self.logger.error('could not find course')
 
         except (NoSuchElementException, StaleElementReferenceException) as e:
             # if we got logged out log back in
             if self.driver.title == 'Boston University | Login':
-                print('Oops. We got logged out. Logging back in...!')
+                self.logger.warning('Oops. We got logged out. Logging back in...!')
                 if self.login() != Status.SUCCESS:
-                    print('Relogin failed...!')
+                    self.logger.critical('Relogin failed...! We cannot continue.')
                     return Status.ERROR
             else:
                 # if something else happened, increment the error counter and try again
@@ -235,12 +240,12 @@ class Registrar():
 
                 # if the error counter exceeds max errors, exit
                 if self.error_counter > RETRY_LIMIT:
-                    print('Unexpected page. Something went wrong. Dumping page and exiting...')
-                    print(self.driver.page_source)
+                    self.logger.critical('Unexpected page. Something went wrong. Dumping page and exiting...')
+                    self.logger.critical(self.driver.page_source)
                     return Status.ERROR
                 # if retry threshold not reach, simply return a failure and retry later
                 else:
-                    print('Unexpected page. Something went wrong. Retrying...')
+                    self.logger.error('Unexpected page. Something went wrong. Retrying...')
 
         return Status.FAILURE
 
@@ -262,26 +267,4 @@ class Registrar():
             'BrowseContinueInd': '',
             'ShoppingCartInd': '',
             'ShoppingCartList': ''
-        }
-
-    def generate_reg_params(self, college, dept, course, section, ssid):
-        return {
-                'SelectIt': ssid,
-                'College': college.upper(),
-                'Dept': dept.upper(),
-                'Course': course,
-                'Section': section.upper(),
-                'ModuleName': self.module,
-                'AddPreregInd': '',
-                'AddPlannerInd': 'Y' if self.is_planner else '',
-                'ViewSem': self.season + ' ' + str(self.year),
-                'KeySem': self.semester_key,
-                'PreregViewSem': '',
-                'PreregKeySem': '',
-                'SearchOptionCd': 'S',
-                'SearchOptionDesc': 'Class Number',
-                'MainCampusInd': '',
-                'BrowseContinueInd': '',
-                'ShoppingCartInd': '',
-                'ShoppingCartList': ''
         }

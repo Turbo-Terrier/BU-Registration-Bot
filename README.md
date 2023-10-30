@@ -1,5 +1,11 @@
 ## Installation
 
+### Prerequisites
+
+* Python3
+* Chrome Browser
+
+### Installation Steps
 ### Windows
 `cd Drive:\path\to\folder`
 
