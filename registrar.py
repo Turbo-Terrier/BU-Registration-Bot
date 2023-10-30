@@ -1,13 +1,13 @@
+import platform
 import re
 import time
 from enum import Enum
 from typing import List, Tuple
 
-from selenium import webdriver
 from selenium.common import NoSuchElementException
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.webdriver import WebDriver
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
+from selenium import webdriver
 
 STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
 
@@ -25,7 +25,7 @@ class Status(Enum):
 
 
 class Registrar():
-    driver: WebDriver
+    driver: webdriver
     is_planner: bool
     module: str
     target_courses: List[Tuple[str, str, str, str]]
@@ -34,9 +34,20 @@ class Registrar():
     semester_key: str
 
     def __init__(self, planner: bool, season: str, year: int, target_courses: List[Tuple[str, str, str, str]]):
-        chrome_options = Options()
-        chrome_options.add_argument("--headless")
-        self.driver = webdriver.Chrome(chrome_options)
+        if platform.system() == 'Linux':
+            print('Linux mode activated...')
+            from pyvirtualdisplay import Display
+            display = Display(visible=0, size=(800, 600))
+            display.start()
+
+        options = webdriver.ChromeOptions()
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        service = Service(executable_path="/usr/lib/chromium-browser/chromedriver") if platform.system() == "Linux" else Service()
+
+        self.driver = webdriver.Chrome(options=options, service=service)
+
         self.driver.set_page_load_timeout(30)
         self.is_planner = planner
         self.module = 'reg/plan/add_planner.pl' if planner else 'reg/add/confirm_classes.pl'
@@ -124,11 +135,11 @@ class Registrar():
                 else:
                     print('Irrecoverable error occurred. Exiting...')
                     exit(1)
+                time.sleep(1.5) # can't have bu get mad at us for spamming them too hard <3
             print('----------------')
             print(f'{(original_len - len(self.target_courses))}/{original_len} courses have been registered for!')
             print('----------------')
             cycles += 1
-            time.sleep(2)  # can't have bu get mad at us for spamming them <3
 
         self.driver.close() # we are done!
 

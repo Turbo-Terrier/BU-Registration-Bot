@@ -1,5 +1,6 @@
-from typing import Tuple
+# adapted from https://github.com/juliusfrost/BU-Registration-Bot/blob/master/reg.py
 
+from typing import Tuple
 from registrar import Registrar, Status
 
 # Put here the list of courses you want to register for
@@ -9,6 +10,13 @@ my_courses = [
     ('CAS', 'CS', '460', 'A1'),
     ('CAS', 'CS', '460', 'A2'),
 ]
+
+# in test mode, we will only add courses to the planner just to make sure stuff works
+test_mode = True
+
+################################################################
+# Don't modify below here unless you know what you are doing
+################################################################
 def credentials() -> (str, str):
     # you could replace this with your literal username and password...
     # but that's insecure :)
@@ -36,7 +44,7 @@ def semester() -> Tuple[str, int]:
 if __name__ == "__main__":
     season, year = ('Spring', 2024) #semester()
     creds = credentials()
-    registrar = Registrar(False, season, year, my_courses)
+    registrar = Registrar(test_mode, season, year, my_courses)
     while registrar.login(creds) != Status.SUCCESS:
         print('Hmm... Lets try that again...')
         registrar.login(credentials())
