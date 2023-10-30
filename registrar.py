@@ -13,8 +13,8 @@ STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
 
 season_to_key = {
     'spring': 4,
-    'summer 1': 1,
-    'summer 2': 2,
+    'summer1': 1,
+    'summer2': 2,
     'fall': 3
 }
 

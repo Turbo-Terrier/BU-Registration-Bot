@@ -1,0 +1,34 @@
+# Whether to enable REAL registrations. When this is set to
+# 'True', courses will only be added to the planner. It is
+# recommended you do not enable real registrations until you
+# are certain that everything is working as intended.
+# Accepted values are:
+# - True
+# - False
+planner-mode: True
+
+# Kerberos Username: this is most likely the 'user' part of your
+#  user@bu.edu email.
+# (Note: due to security reasons, you cannot save your password
+# into this config and must enter it every time manually!)
+kerberos-user: 'aseef'
+
+# The semester you are trying to register for.
+# Format: [Semester Season] [Year]
+# Example: Fall 2024
+#
+# Valid semester 'semester seasons' are (case insensitive):
+# - Fall
+# - Spring
+# - Summer1
+# - Summer2
+target-semester: 'Spring 2024'
+
+# The list of courses you want to register for
+# Format: [School] [Department] [Course Number] [Section]
+# Example: CAS CS 111 A1
+course-list:
+  - CAS CS 585 A1
+  - CAS CS 460 A1
+  - CAS CS 460 A2
+
