@@ -39,16 +39,7 @@ class Registrar():
     credentials: Tuple[str, str]
 
     error_counter: int = 0 # for tracking errors, if too many successive errors happen, we exit
-    logger: logging.Logger
-
     def __init__(self, credentials: Tuple[str, str], planner: bool, season: str, year: int, target_courses: List[Tuple[str, str, str, str]]):
-        self.logger = util.get_logger()
-
-        if platform.system() == 'Linux':
-            self.logger.debug('Linux mode activated...')
-            from pyvirtualdisplay import Display
-            display = Display(visible=0, size=(800, 600))
-            display.start()
 
         options = webdriver.ChromeOptions()
         options.add_argument('--headless')
@@ -77,7 +68,7 @@ class Registrar():
                 text = failure_elements[0].text
                 if text == 'Duo Push timed out':
                     # start over
-                    self.logger.warning('Oops, Duo Pushed timed out!')
+                    logging.warning('Oops, Duo Pushed timed out!')
                     self.driver.close()
                     return Status.FAILURE
             # trust browser so we can log back in without duo when BU times us out
@@ -85,8 +76,8 @@ class Registrar():
             if len(dont_trust_elements) > 0:
                 dont_trust_elements[0].click()
         except NoSuchElementException:
-            self.logger.critical('Unexpected page. Something went wrong. Dumping page...')
-            self.logger.critical(self.driver.page_source)
+            logging.critical('Unexpected page. Something went wrong. Dumping page...')
+            logging.critical(self.driver.page_source)
             return Status.ERROR
 
     """
@@ -108,7 +99,7 @@ class Registrar():
 
         username, password = self.credentials
 
-        self.logger.debug(F'Logging in into {username}\'s account...!')
+        logging.debug(F'Logging in into {username}\'s account...!')
 
         self.driver.get(f"{STUDENT_LINK_URL}?ModuleName=regsched.pl")
         self.driver.find_element(By.ID, 'j_username').send_keys(username)
@@ -117,7 +108,7 @@ class Registrar():
 
         bad_user_elems = self.driver.find_elements(By.CLASS_NAME, 'error-box')
         if len(bad_user_elems) > 0:
-            self.logger.critical('Error:', bad_user_elems[0].find_element(By.CLASS_NAME, 'error').text)
+            logging.critical('Error:', bad_user_elems[0].find_element(By.CLASS_NAME, 'error').text)
             self.driver.close()
             return Status.ERROR
 
@@ -125,7 +116,7 @@ class Registrar():
         while 'studentlink' not in self.driver.current_url:
             if 'duosecurity' in self.driver.current_url:
                 if not duo_messaged:
-                    self.logger.debug('Waiting for you to approve this login on Duo...')
+                    logging.debug('Waiting for you to approve this login on Duo...')
                     duo_messaged = True
                 # if duo login false, we fail
                 status = self.__duo_login()
@@ -134,7 +125,7 @@ class Registrar():
                 # wait a couple sec
                 time.sleep(2)
 
-        self.logger.debug(F'Successfully logged into {username}\'s account!')
+        logging.debug(F'Successfully logged into {username}\'s account!')
         return Status.SUCCESS
 
     #TODO: get a list of registered courses and remove them from the list of courses
@@ -166,20 +157,20 @@ class Registrar():
         while len(self.target_courses) != 0:  # keep trying until all courses are registered
             for course in self.target_courses:
                 duration = (time.time() - start)
-                self.logger.debug(f'Running since the past {round(duration/60/60, 2)} hours...')
+                logging.debug(f'Running since the past {round(duration/60/60, 2)} hours...')
                 result = self.__find_course(course)
                 if result == Status.SUCCESS:
                     self.target_courses.remove(course)
-                    self.logger.debug(F'Successfully registered for {course}!')
+                    logging.debug(F'Successfully registered for {course}!')
                 elif result == Status.FAILURE:
                     continue # NEVER SURRENDER!!
                 else:
-                    self.logger.critical('Irrecoverable error occurred. Exiting...')
+                    logging.critical('Irrecoverable error occurred. Exiting...')
                     exit(1)
                 time.sleep(0.5) # can't have bu get mad at us for spamming them too hard <3
-            self.logger.debug('--------------------------')
-            self.logger.debug(f'{(original_len - len(self.target_courses))}/{original_len} courses have been registered for!')
-            self.logger.debug('--------------------------')
+            logging.debug('--------------------------')
+            logging.debug(f'{(original_len - len(self.target_courses))}/{original_len} courses have been registered for!')
+            logging.debug('--------------------------')
             cycles += 1
 
         self.driver.close() # we are done!
@@ -216,23 +207,23 @@ class Registrar():
                             alert.accept()
                         o = re.search('<title>Error</title>', self.driver.page_source)
                         if o:
-                            self.logger.warning(f'Can not register yet for {name}...')
+                            logging.warning(f'Can not register yet for {name}...')
                         else:
                             return Status.SUCCESS
                     except NoSuchElementException:
-                        self.logger.warning(f"Can not register yet for {name} because registration is blocked (full class?)")
+                        logging.warning(f"Can not register yet for {name} because registration is blocked (full class?)")
 
                     self.error_counter = 0 # reset error counter
 
             if not found:
-                self.logger.error('could not find course')
+                logging.error('could not find course')
 
         except (NoSuchElementException, StaleElementReferenceException) as e:
             # if we got logged out log back in
             if self.driver.title == 'Boston University | Login':
-                self.logger.warning('Oops. We got logged out. Logging back in...!')
+                logging.warning('Oops. We got logged out. Logging back in...!')
                 if self.login() != Status.SUCCESS:
-                    self.logger.critical('Relogin failed...! We cannot continue.')
+                    logging.critical('Relogin failed...! We cannot continue.')
                     return Status.ERROR
             else:
                 # if something else happened, increment the error counter and try again
@@ -240,12 +231,12 @@ class Registrar():
 
                 # if the error counter exceeds max errors, exit
                 if self.error_counter > RETRY_LIMIT:
-                    self.logger.critical('Unexpected page. Something went wrong. Dumping page and exiting...')
-                    self.logger.critical(self.driver.page_source)
+                    logging.critical('Unexpected page. Something went wrong. Dumping page and exiting...')
+                    logging.critical(self.driver.page_source)
                     return Status.ERROR
                 # if retry threshold not reach, simply return a failure and retry later
                 else:
-                    self.logger.error('Unexpected page. Something went wrong. Retrying...')
+                    logging.error('Unexpected page. Something went wrong. Retrying...')
 
         return Status.FAILURE
 

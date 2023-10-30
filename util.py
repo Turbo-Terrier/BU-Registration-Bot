@@ -20,22 +20,9 @@ def get_arch():
 def get_machine():
     return platform.machine()
 
-"""
-Get the logger for this bot
-"""
-def get_logger():
-    return logger
-
-
-def __create_logger():
+def init_logger():
     os.makedirs(get_logs_dir(), exist_ok=True)
-    # first we init our logging system
-    # Create a logger
-
-    logger = logging.getLogger("registration-bot")
-    logger.setLevel(logging.DEBUG)
-
-    log_format = '[%(asctime)s] [%(levelname)s]  %(message)s'
+    log_format = '[%(asctime)s] [%(levelname)s] %(message)s'
 
     # Create a console handler
     console_handler = logging.StreamHandler()
@@ -50,11 +37,4 @@ def __create_logger():
     file_formatter = logging.Formatter(log_format)
     file_handler.setFormatter(file_formatter)
 
-    # Add handlers to the logger
-    logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
-
-    return logger
-
-
-logger = __create_logger()
+    logging.basicConfig(level=logging.DEBUG, handlers=[console_handler, file_handler])
