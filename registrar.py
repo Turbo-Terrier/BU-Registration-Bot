@@ -4,12 +4,13 @@ import time
 from enum import Enum
 from typing import List, Tuple
 
-from selenium.common import NoSuchElementException
+from selenium import webdriver
+from selenium.common import NoSuchElementException, StaleElementReferenceException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from selenium import webdriver
 
 STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
+RETRY_LIMIT = 3
 
 season_to_key = {
     'spring': 4,
@@ -34,6 +35,8 @@ class Registrar():
     semester_key: str
     credentials: Tuple[str, str]
 
+    error_counter: int = 0 # for tracking errors, if too many successive errors happen, we exit
+
     def __init__(self, credentials: Tuple[str, str], planner: bool, season: str, year: int, target_courses: List[Tuple[str, str, str, str]]):
         if platform.system() == 'Linux':
             print('Linux mode activated...')
@@ -45,7 +48,10 @@ class Registrar():
         options.add_argument('--headless')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
-        service = Service(executable_path="/usr/lib/chromium-browser/chromedriver") if platform.system() == "Linux" else Service()
+        #TODO
+        #service = Service(executable_path=util.get_driver_path())
+        service = Service(
+            executable_path="/usr/lib/chromium-browser/chromedriver") if platform.system() == "Linux" else Service()
 
         self.driver = webdriver.Chrome(options=options, service=service)
 
@@ -59,7 +65,6 @@ class Registrar():
         self.credentials = credentials
 
     def __duo_login(self):
-
         try:
             # also check if Duo has timed us out...
             failure_elements = self.driver.find_elements(By.ID, 'error-view-header-text')
@@ -125,6 +130,8 @@ class Registrar():
         print('Successfully Logged in!')
         return Status.SUCCESS
 
+    #TODO: get a list of registered courses and remove them from the list of courses
+
     """
     It looks like to prevent bot-registrations, BU requires you go through here first before you register.
     Otherwise it will prevent registration with a misleading error. AHAHA SUCK IT!
@@ -164,7 +171,7 @@ class Registrar():
                 else:
                     print('Irrecoverable error occurred. Exiting...')
                     exit(1)
-                time.sleep(0.75) # can't have bu get mad at us for spamming them too hard <3
+                time.sleep(0.5) # can't have bu get mad at us for spamming them too hard <3
             print('----------------')
             print(f'{(original_len - len(self.target_courses))}/{original_len} courses have been registered for!')
             print('----------------')
@@ -210,10 +217,12 @@ class Registrar():
                     except NoSuchElementException:
                         print(f"Can not register yet for {name} because registration is blocked (full class?)")
 
+                    self.error_counter = 0 # reset error counter
+
             if not found:
                 print('could not find course')
 
-        except NoSuchElementException:
+        except (NoSuchElementException, StaleElementReferenceException) as e:
             # if we got logged out log back in
             if self.driver.title == 'Boston University | Login':
                 print('Oops. We got logged out. Logging back in...!')
@@ -221,10 +230,17 @@ class Registrar():
                     print('Relogin failed...!')
                     return Status.ERROR
             else:
-                # if something else happened, thats RKO
-                print('Unexpected page. Something went wrong. Dumping page...')
-                print(self.driver.page_source)
-                return Status.ERROR
+                # if something else happened, increment the error counter and try again
+                self.error_counter += 1
+
+                # if the error counter exceeds max errors, exit
+                if self.error_counter > RETRY_LIMIT:
+                    print('Unexpected page. Something went wrong. Dumping page and exiting...')
+                    print(self.driver.page_source)
+                    return Status.ERROR
+                # if retry threshold not reach, simply return a failure and retry later
+                else:
+                    print('Unexpected page. Something went wrong. Retrying...')
 
         return Status.FAILURE
 

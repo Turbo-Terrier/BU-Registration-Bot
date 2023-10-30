@@ -41,7 +41,7 @@ class Configurations:
                 failures += [F"'{course}' is not in the correct format. Example entry: CAS CS 111 A1"]
             else:
                 split = course.split(' ')
-                course_tuples += [split[0], split[1], split[2], split[3]]
+                course_tuples += [(split[0], split[1], split[2], split[3])]
         if len(failures) > 0:
             raise SyntaxError('Error(s): ' + ', '.join(failures))
 
