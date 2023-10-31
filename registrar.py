@@ -159,6 +159,7 @@ class Registrar():
                 duration = (time.time() - start)
                 logging.info(f'Running since the past {round(duration/60/60, 2)} hours...')
                 result = self.__find_course(course)
+                time.sleep(0.5) # can't have bu get mad at us for spamming them too hard <3
                 if result == Status.SUCCESS:
                     self.target_courses.remove(course)
                     logging.info(F'Successfully registered for {course}!')
@@ -167,13 +168,14 @@ class Registrar():
                 else:
                     logging.critical('Irrecoverable error occurred. Exiting...')
                     exit(1)
-                time.sleep(0.5) # can't have bu get mad at us for spamming them too hard <3
             logging.info('--------------------------')
             logging.info(f'{(original_len - len(self.target_courses))}/{original_len} courses have been registered for!')
             logging.info('--------------------------')
             cycles += 1
 
-        self.driver.close() # we are done!
+        # we are done!
+        self.driver.close()
+        self.driver.quit()
 
     def __find_course(self, course: (str, str, str, str)) -> Status.SUCCESS:
         college, dept, course, section = course
