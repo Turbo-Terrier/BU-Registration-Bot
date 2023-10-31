@@ -1,7 +1,7 @@
 import logging
 import platform
-import re
 import time
+import traceback
 from enum import Enum
 from typing import List, Tuple
 
@@ -10,9 +10,9 @@ from selenium.common import NoSuchElementException, StaleElementReferenceExcepti
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 
-import util
-
 STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
+REGISTER_SUCCESS_ICON = 'https://www.bu.edu/link/student/images/checkmark.gif'
+REGISTER_FAILED_ICON = 'https://www.bu.edu/link/student/images/xmark.gif'
 RETRY_LIMIT = 3
 
 season_to_key = {
@@ -22,13 +22,14 @@ season_to_key = {
     'fall': 3
 }
 
+
 class Status(Enum):
     ERROR = 2
     SUCCESS = 1
     FAILURE = 0
 
 
-class Registrar():
+class Registrar:
     driver: webdriver
     is_planner: bool
     module: str
@@ -38,8 +39,10 @@ class Registrar():
     semester_key: str
     credentials: Tuple[str, str]
 
-    error_counter: int = 0 # for tracking errors, if too many successive errors happen, we exit
-    def __init__(self, credentials: Tuple[str, str], planner: bool, season: str, year: int, target_courses: List[Tuple[str, str, str, str]]):
+    error_counter: int = 0  # for tracking errors, if too many successive errors happen, we exit
+
+    def __init__(self, credentials: Tuple[str, str], planner: bool, season: str, year: int,
+                 target_courses: List[Tuple[str, str, str, str]]):
 
         options = webdriver.ChromeOptions()
         options.add_argument('--headless')
@@ -83,10 +86,13 @@ class Registrar():
     """
     NOTE: Intended only for testing
     """
+
     def logout(self) -> Status:
         try:
             self.driver.get(f"{STUDENT_LINK_URL}?ModuleName=regsched.pl")
-            logout_button = self.driver.find_element(By.XPATH, '//a/img[@src="https://www.bu.edu/link/student/images/header_logoff.gif"]')
+            logout_button = self.driver.find_element(By.XPATH,
+                                                     '//a/img[@src="https://www.bu.edu/link/student/images'
+                                                     '/header_logoff.gif"]')
             logout_button.click()
             return Status.SUCCESS
         except Exception:
@@ -128,15 +134,16 @@ class Registrar():
         logging.info(F'Successfully logged into {username}\'s account!')
         return Status.SUCCESS
 
-    #TODO: get a list of registered courses and remove them from the list of courses
-
     """
     It looks like to prevent bot-registrations, BU requires you go through here first before you register.
     Otherwise it will prevent registration with a misleading error. AHAHA SUCK IT!
     """
+
     def navigate(self):
-        self.driver.get(f'{STUDENT_LINK_URL}?ModuleName=reg/option/_start.pl&ViewSem={self.season}%20{self.year}&KeySem={self.semester_key}')
-        rows = self.driver.find_element(By.TAG_NAME, 'tbody').find_elements(By.XPATH, '//tr[@align="center" and @valign="top"]')
+        self.driver.get(
+            f'{STUDENT_LINK_URL}?ModuleName=reg/option/_start.pl&ViewSem={self.season}%20{self.year}&KeySem={self.semester_key}')
+        rows = self.driver.find_element(By.TAG_NAME, 'tbody').find_elements(By.XPATH,
+                                                                            '//tr[@align="center" and @valign="top"]')
         plan = rows[0]
         register = rows[1]
         if self.is_planner:
@@ -149,6 +156,7 @@ class Registrar():
     Finds course listing and tries to register for the class.
     Sometimes course names are wrong, use at your own discretion. 
     '''
+
     def find_courses(self) -> Status.SUCCESS:
         start = time.time()
         cycles = 0
@@ -157,19 +165,20 @@ class Registrar():
         while len(self.target_courses) != 0:  # keep trying until all courses are registered
             for course in self.target_courses:
                 duration = (time.time() - start)
-                logging.info(f'Running since the past {round(duration/60/60, 2)} hours...')
+                logging.info(f'Running since the past {round(duration / 60 / 60, 2)} hours...')
                 result = self.__find_course(course)
-                time.sleep(0.5) # can't have bu get mad at us for spamming them too hard <3
+                time.sleep(0.5)  # can't have bu get mad at us for spamming them too hard <3
                 if result == Status.SUCCESS:
                     self.target_courses.remove(course)
                     logging.info(F'Successfully registered for {course}!')
                 elif result == Status.FAILURE:
-                    continue # NEVER SURRENDER!!
+                    continue  # NEVER SURRENDER!!
                 else:
                     logging.critical('Irrecoverable error occurred. Exiting...')
                     exit(1)
             logging.info('--------------------------')
-            logging.info(f'{(original_len - len(self.target_courses))}/{original_len} courses have been registered for!')
+            logging.info(
+                f'{(original_len - len(self.target_courses))}/{original_len} courses have been registered for!')
             logging.info('--------------------------')
             cycles += 1
 
@@ -185,9 +194,9 @@ class Registrar():
         self.driver.get(url_with_params)
 
         try:
-            tr_elements = self.driver.find_element(By.NAME, 'SelectForm')\
-                .find_element(By.TAG_NAME, 'table')\
-                .find_element(By.TAG_NAME, 'tbody')\
+            tr_elements = self.driver.find_element(By.NAME, 'SelectForm') \
+                .find_element(By.TAG_NAME, 'table') \
+                .find_element(By.TAG_NAME, 'tbody') \
                 .find_elements(By.TAG_NAME, 'tr')
 
             found = False
@@ -200,22 +209,41 @@ class Registrar():
                 if course_name_tag.text == college.upper() + ' ' + dept.upper() + course + ' ' + section.upper():
                     found = True
                     try:
+                        # this call will produce an error if the class is blocked from registration
                         course_id_tag.find_element(By.CSS_SELECTOR, "input[name='SelectIt']").click()
+                        logging.info(F'Registration for {name} is open! Attempting to register now...')
+
                         button = self.driver.find_element(By.XPATH, "//input[@type='button']")
                         button.click()
+
                         # real registration requires accepting an alert
                         if not self.is_planner:
                             alert = self.driver.switch_to.alert
                             alert.accept()
-                        o = re.search('<title>Error</title>', self.driver.page_source)
-                        if o:
-                            logging.warning(f'Can not register yet for {name}...')
-                        else:
-                            return Status.SUCCESS
-                    except NoSuchElementException:
-                        logging.warning(f"Can not register yet for {name} because registration is blocked (full class?)")
 
-                    self.error_counter = 0 # reset error counter
+                        if self.driver.title == 'Add Classes - Confirmation':
+                            status_element = self.driver.find_element(By.XPATH, "//tr[@ALIGN='center'][@Valign='top']")
+                            status_icon_url = status_element.find_element(By.TAG_NAME, "img").get_attribute('src')
+                            if status_icon_url == REGISTER_SUCCESS_ICON:
+                                return Status.SUCCESS
+                            elif status_icon_url == REGISTER_FAILED_ICON:
+                                reason_element = status_element.find_elements(By.TAG_NAME, 'td')[-1].find_element(
+                                    By.TAG_NAME, 'font')
+                                reason = reason_element.text
+                                logging.warning(F'Failed to register for {name} because: \'{reason}\'')
+                                return Status.FAILURE
+                            else:  # this case should never happen if I made this right
+                                return Status.ERROR
+                        elif self.driver.title == 'Error':
+                            logging.warning(f'Can not register yet for {name}...')
+                        else:  # the planner doesn't have a confirmation state
+                            return Status.SUCCESS
+
+                    except NoSuchElementException:
+                        logging.warning(
+                            f"Can not register yet for {name} because registration is blocked (full class?)")
+
+                    self.error_counter = 0  # reset error counter
 
             if not found:
                 logging.error('could not find course')
@@ -233,11 +261,13 @@ class Registrar():
 
                 # if the error counter exceeds max errors, exit
                 if self.error_counter > RETRY_LIMIT:
+                    logging.critical(traceback.format_exc())
                     logging.critical('Unexpected page. Something went wrong. Dumping page and exiting...')
                     logging.critical(self.driver.page_source)
                     return Status.ERROR
                 # if retry threshold not reach, simply return a failure and retry later
                 else:
+                    logging.error(traceback.format_exc())
                     logging.error('Unexpected page. Something went wrong. Retrying...')
 
         return Status.FAILURE
@@ -253,7 +283,7 @@ class Registrar():
             'AddPlannerInd': 'Y' if self.is_planner else '',
             'ViewSem': self.season + ' ' + str(self.year),
             'KeySem': self.semester_key,
-            'PreregViewSem':  '',
+            'PreregViewSem': '',
             'SearchOptionCd': 'S',
             'SearchOptionDesc': 'Class Number',
             'MainCampusInd': '',
