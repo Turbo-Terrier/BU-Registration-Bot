@@ -9,7 +9,7 @@ import requests
 from status import Status
 from typing import List, Tuple, Dict
 
-from seleniumwire import webdriver
+from selenium import webdriver
 from selenium.common import NoSuchElementException, StaleElementReferenceException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -255,7 +255,8 @@ class Registrar:
 
             if not found:
                 logging.error(f'Error, {course_name} does not exist! Have you entered the correct course?')
-                return Status.FAILURE
+
+            return Status.FAILURE
 
         except (NoSuchElementException, StaleElementReferenceException) as e:
             # if we got logged out log back in
