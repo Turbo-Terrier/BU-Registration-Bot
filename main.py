@@ -40,6 +40,7 @@ if __name__ == "__main__":
     exit(status)
 
 # TODO: support for switching sections
+# TODO: support for 'registering for ONE of these' --- NAH
 # TODO: support to query currently registered courses
 # TODO: smtp and/or phone message support
 # TODO: Dynamic wait interval based on CPU speed

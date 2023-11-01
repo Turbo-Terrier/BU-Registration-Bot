@@ -2,7 +2,7 @@ import logging
 import platform
 import time
 import traceback
-from enum import Enum
+from status import Status
 from typing import List, Tuple
 
 from selenium import webdriver
@@ -10,23 +10,18 @@ from selenium.common import NoSuchElementException, StaleElementReferenceExcepti
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 
+
 STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
 REGISTER_SUCCESS_ICON = 'https://www.bu.edu/link/student/images/checkmark.gif'
 REGISTER_FAILED_ICON = 'https://www.bu.edu/link/student/images/xmark.gif'
 RETRY_LIMIT = 3
-
-season_to_key = {
+# each semester season has an id
+SEMESTER_ID_DICT = {
     'spring': 4,
     'summer1': 1,
     'summer2': 2,
     'fall': 3
 }
-
-
-class Status(Enum):
-    ERROR = 2
-    SUCCESS = 1
-    FAILURE = 0
 
 
 class Registrar:
@@ -39,7 +34,8 @@ class Registrar:
     semester_key: str
     credentials: Tuple[str, str]
 
-    error_counter: int = 0  # for tracking errors, if too many successive errors happen, we exit
+    # for tracking errors, if too many successive errors happen, we exit
+    error_counter: int = 0
 
     def __init__(self, credentials: Tuple[str, str], planner: bool, season: str, year: int,
                  target_courses: List[Tuple[str, str, str, str]]):
@@ -60,7 +56,7 @@ class Registrar:
         self.target_courses = target_courses
         self.season = season.capitalize()
         self.year = year
-        self.semester_key = str(year) + str(season_to_key[season.lower()])
+        self.semester_key = str(year) + str(SEMESTER_ID_DICT[season.lower()])
         self.credentials = credentials
 
     def __duo_login(self):
@@ -159,7 +155,6 @@ class Registrar:
 
     def find_courses(self) -> Status.SUCCESS:
         start = time.time()
-        cycles = 0
         original_len = len(self.target_courses)
 
         while len(self.target_courses) != 0:  # keep trying until all courses are registered
@@ -180,7 +175,6 @@ class Registrar:
             logging.info(
                 f'{(original_len - len(self.target_courses))}/{original_len} courses have been registered for!')
             logging.info('--------------------------')
-            cycles += 1
 
         # we are done!
         self.driver.close()
@@ -188,7 +182,7 @@ class Registrar:
 
     def __find_course(self, course: (str, str, str, str)) -> Status.SUCCESS:
         college, dept, course, section = course
-        name = dept.upper() + course + ' ' + section.upper()
+        course_name = college + ' ' + dept.upper() + course + ' ' + section.upper()
         params_browse = self.generate_params(college, dept, course, section)
         url_with_params = f"{STUDENT_LINK_URL}?{'&'.join([f'{key}={value}' for key, value in params_browse.items()])}"
         self.driver.get(url_with_params)
@@ -211,7 +205,7 @@ class Registrar:
                     try:
                         # this call will produce an error if the class is blocked from registration
                         course_id_tag.find_element(By.CSS_SELECTOR, "input[name='SelectIt']").click()
-                        logging.info(F'Registration for {name} is open! Attempting to register now...')
+                        logging.info(F'Registration for {course_name} is open! Attempting to register now...')
 
                         button = self.driver.find_element(By.XPATH, "//input[@type='button']")
                         button.click()
@@ -230,18 +224,18 @@ class Registrar:
                                 reason_element = status_element.find_elements(By.TAG_NAME, 'td')[-1].find_element(
                                     By.TAG_NAME, 'font')
                                 reason = reason_element.text
-                                logging.warning(F'Failed to register for {name} because: \'{reason}\'')
+                                logging.warning(F'Failed to register for {course_name} because: \'{reason}\'')
                                 return Status.FAILURE
                             else:  # this case should never happen if I made this right
                                 return Status.ERROR
                         elif self.driver.title == 'Error':
-                            logging.warning(f'Can not register yet for {name}...')
+                            logging.warning(f'Can not register yet for {course_name}...')
                         else:  # the planner doesn't have a confirmation state
                             return Status.SUCCESS
 
                     except NoSuchElementException:
                         logging.warning(
-                            f"Can not register yet for {name} because registration is blocked (full class?)")
+                            f"Can not register yet for {course_name} because registration is blocked (full class?)")
 
                     self.error_counter = 0  # reset error counter
 
