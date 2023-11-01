@@ -2,14 +2,17 @@ import logging
 import platform
 import time
 import traceback
-from status import Status
-from typing import List, Tuple
+from collections import defaultdict
 
-from selenium import webdriver
+import requests
+
+from status import Status
+from typing import List, Tuple, Dict
+
+from seleniumwire import webdriver
 from selenium.common import NoSuchElementException, StaleElementReferenceException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-
 
 STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
 REGISTER_SUCCESS_ICON = 'https://www.bu.edu/link/student/images/checkmark.gif'
@@ -34,8 +37,11 @@ class Registrar:
     semester_key: str
     credentials: Tuple[str, str]
 
-    # for tracking errors, if too many successive errors happen, we exit
-    error_counter: int = 0
+    # for tracking errors, if too many successive errors happen for the same
+    # course, we stop trying that course
+    course_error_counter: Dict[Tuple[str, str, str, str], int] = defaultdict(lambda: 0)
+    # total error counter, if too many successive errors happen, we exit
+    total_error_counter: int = 0
 
     def __init__(self, credentials: Tuple[str, str], planner: bool, season: str, year: int,
                  target_courses: List[Tuple[str, str, str, str]]):
@@ -146,7 +152,7 @@ class Registrar:
             plan.find_element(By.TAG_NAME, 'a').click()
         else:
             register.find_element(By.TAG_NAME, 'a').click()
-        time.sleep(1)
+        time.sleep(0.5)
 
     '''
     Finds course listing and tries to register for the class.
@@ -181,9 +187,15 @@ class Registrar:
         self.driver.quit()
 
     def __find_course(self, course: (str, str, str, str)) -> Status.SUCCESS:
-        college, dept, course, section = course
-        course_name = college + ' ' + dept.upper() + course + ' ' + section.upper()
-        params_browse = self.generate_params(college, dept, course, section)
+        college, dept, course_code, section = course
+        course_name = college.upper() + ' ' + dept.upper() + course_code + ' ' + section.upper()
+
+        if self.course_error_counter[course] > RETRY_LIMIT:
+            logging.warning(f"Skipped course registration attempt for {course_name} due to too many failures."
+                            f"Check logs for more info.")
+            return Status.FAILURE
+
+        params_browse = self.generate_params(college, dept, course_code, section)
         url_with_params = f"{STUDENT_LINK_URL}?{'&'.join([f'{key}={value}' for key, value in params_browse.items()])}"
         self.driver.get(url_with_params)
 
@@ -200,7 +212,7 @@ class Registrar:
                     continue
                 course_name_tag = tr_element.find_elements(By.TAG_NAME, 'td')[2]
                 course_id_tag = tr_element.find_elements(By.TAG_NAME, 'td')[0]
-                if course_name_tag.text == college.upper() + ' ' + dept.upper() + course + ' ' + section.upper():
+                if course_name_tag.text == course_name:
                     found = True
                     try:
                         # this call will produce an error if the class is blocked from registration
@@ -237,10 +249,13 @@ class Registrar:
                         logging.warning(
                             f"Can not register yet for {course_name} because registration is blocked (full class?)")
 
-                    self.error_counter = 0  # reset error counter
+                    # reset error counters
+                    self.total_error_counter = 0
+                    self.course_error_counter[course] = 0
 
             if not found:
-                logging.error('could not find course')
+                logging.error(f'Error, {course_name} does not exist! Have you entered the correct course?')
+                return Status.FAILURE
 
         except (NoSuchElementException, StaleElementReferenceException) as e:
             # if we got logged out log back in
@@ -249,19 +264,30 @@ class Registrar:
                 if self.login() != Status.SUCCESS:
                     logging.critical('Re-login failed...! We cannot continue.')
                     return Status.ERROR
+                else:
+                    self.navigate()
+                    return Status.FAILURE
             else:
                 # if something else happened, increment the error counter and try again
-                self.error_counter += 1
+                self.total_error_counter += 1
+                self.course_error_counter[course] += 1
 
                 # if the error counter exceeds max errors, exit
-                if self.error_counter > RETRY_LIMIT:
+                if self.total_error_counter > RETRY_LIMIT:
                     logging.critical(traceback.format_exc())
-                    logging.critical('Unexpected page. Something went wrong. Dumping page and exiting...')
                     logging.critical(self.driver.page_source)
+                    logging.critical('Unexpected page. Something went wrong. Read above dump for more info.')
                     return Status.ERROR
+                elif self.course_error_counter[course] > RETRY_LIMIT:
+                    logging.critical(traceback.format_exc())
+                    logging.critical(self.driver.page_source)
+                    logging.error(F'Encountered too many successive failures for {course_name}.'
+                                  F' Read above dump for more info')
+                    return Status.FAILURE
                 # if retry threshold not reach, simply return a failure and retry later
                 else:
                     logging.error(traceback.format_exc())
+                    logging.error(self.driver.page_source)
                     logging.error('Unexpected page. Something went wrong. Retrying...')
 
         return Status.FAILURE
