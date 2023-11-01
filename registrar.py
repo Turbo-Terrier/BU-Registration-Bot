@@ -289,8 +289,8 @@ class Registrar:
                     logging.error(traceback.format_exc())
                     logging.error(self.driver.page_source)
                     logging.error('Unexpected page. Something went wrong. Retrying...')
+                    return Status.FAILURE
 
-        return Status.FAILURE
 
     def generate_params(self, college, dept, course, section):
         return {
