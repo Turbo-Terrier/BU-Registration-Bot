@@ -3,36 +3,6 @@ import os.path
 import platform
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
-from typing import Tuple
-
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.remote.webdriver import BaseWebDriver
-from selenium.webdriver.common.options import BaseOptions
-
-
-# 1. Chrome
-# 2. Safari
-def get_best_browser() -> Tuple[BaseWebDriver.__class__, BaseOptions.__class__]:
-    attempt_order = [
-        (webdriver.ChromiumEdge, webdriver.ChromeOptions),
-        (webdriver.Safari, webdriver.SafariOptions),
-        (webdriver.Chrome, webdriver.ChromeOptions),
-        (webdriver.Firefox, webdriver.FirefoxOptions),
-        (webdriver.WPEWebKit, webdriver.WPEWebKitOptions),
-        (webdriver.Ie, webdriver.IeOptions),
-    ]
-    if get_os() == 'Windows':
-        return webdriver.Edge, webdriver.EdgeOptions
-    elif get_os() == 'Darwin':
-        return webdriver.Safari, webdriver.Safari
-    else:
-        try:
-            service = Service(
-                executable_path="/usr/lib/chromium-browser/chromedriver") if platform.system() == "Linux" else Service()
-            webdriver.Chrome(service=service)
-        except Exception:
-            ...
 
 def get_logs_dir() -> str:
     return './logs'
