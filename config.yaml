@@ -1,3 +1,7 @@
+# You should leave this blank unless the program is unable to
+# automatically detect where chrome drivers are.
+driver-path: ''
+
 # Whether to enable REAL registrations. When this is set to
 # 'True', courses will only be added to the planner. It is
 # recommended you do not enable real registrations until you

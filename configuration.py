@@ -1,3 +1,4 @@
+import os.path
 import re
 from typing import Tuple, List
 
@@ -10,6 +11,7 @@ class Configurations:
     kerberos_username: str
     target_semester: Tuple[str, int]
     course_list = List[Tuple[str, str, str, str]]
+    driver_path: str
 
     def __init__(self, config_path):
         with open(config_path, 'r') as config:
@@ -18,6 +20,7 @@ class Configurations:
         self.kerberos_username = self.__load_kerberos_username()
         self.target_semester = self.__load_target_semester()
         self.course_list = self.__load_course_list()
+        self.driver_path = self.__load_driver_path()
 
 
     def __load_planner(self) -> bool:
@@ -59,4 +62,18 @@ class Configurations:
         if len(course_tuples) == 0:
             raise SyntaxError('Error! No courses were specified. I don\'t know what to register for!')
 
+        if len(course_tuples) > 10:
+            raise SyntaxError('Error! To prevent abuse, are not allowed to use this bot to attempt to register '
+                              'for more than 10 courses at once.')
+
         return course_tuples
+
+    def __load_driver_path(self) -> str:
+        driver_path: str = self.config['driver-path']
+        if driver_path == '':
+            return driver_path
+
+        if not os.path.exists(driver_path):
+            raise SyntaxError(f'Error! No file exists at your specified driver path ({driver_path}).')
+
+        return driver_path

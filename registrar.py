@@ -44,16 +44,17 @@ class Registrar:
     total_error_counter: int = 0
 
     def __init__(self, credentials: Tuple[str, str], planner: bool, season: str, year: int,
-                 target_courses: List[Tuple[str, str, str, str]]):
+                 target_courses: List[Tuple[str, str, str, str]], driver_path: str):
 
         options = webdriver.ChromeOptions()
         options.add_argument('--headless')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--disable-gpu')
+        options.add_argument('enable-automation')
+        options.add_argument('--blink-settings=imagesEnabled=false')  # disable image loading to speed stuff up a bit
 
-        service = Service(
-            executable_path="/usr/lib/chromium-browser/chromedriver") if platform.system() == "Linux" else Service()
-
+        service = Service() if driver_path == '' else Service(executable_path=driver_path)
         self.driver = webdriver.Chrome(options=options, service=service)
 
         self.driver.set_page_load_timeout(30)
@@ -292,6 +293,20 @@ class Registrar:
                     logging.error('Unexpected page. Something went wrong. Retrying...')
                     return Status.FAILURE
 
+    # TODO: finish to speed up class querying, make sure to handle logouts, and code cleanup
+
+    # def __is_course_available(self, course: (str, str, str, str)) -> Status:
+    #     # make sure they are on the correct page
+    #     if self.driver.current_url.__contains__(f'{STUDENT_LINK_URL}?ModuleName={self.module}'):
+    #         logging.error(F"Unexpected state. Driver is current on url={self.driver.current_url} "
+    #                       F"but state expected the URL to be {STUDENT_LINK_URL}?ModuleName={self.module}.")
+    #         return Status.ERROR
+    #
+    #     college, dept, course, section = course
+    #     course_name = college.upper() + ' ' + dept.upper() + course + ' ' + section.upper()
+    #     params_browse = self.generate_params(college, dept, course, section)
+    #     res = requests.get(STUDENT_LINK_URL, params=params_browse, headers=self.driver.requests[-1].headers)
+    #     ...
 
     def generate_params(self, college, dept, course, section):
         return {
@@ -312,3 +327,4 @@ class Registrar:
             'ShoppingCartInd': '',
             'ShoppingCartList': ''
         }
+# https://www.bu.edu/link/bin/uiscgi_studentlink.pl?SelectIt=0001190094&College=CAS&Dept=CS&Course=440&Section=A3&ModuleName=reg%2Fplan%2Fadd_planner.pl&AddPreregInd=&AddPlannerInd=Y&ViewSem=Spring+2024&KeySem=20244&PreregViewSem=&PreregKeySem=&SearchOptionCd=S&SearchOptionDesc=Class+Number&MainCampusInd=&BrowseContinueInd=&ShoppingCartInd=&ShoppingCartList=
