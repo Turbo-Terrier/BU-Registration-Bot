@@ -1,17 +1,19 @@
 import os.path
 import re
-from typing import Tuple, List
+from typing import Tuple, List, Set
 
 import yaml
 
+from course import BUCourse
+
 
 class Configurations:
-
     is_planner: bool
     kerberos_username: str
     target_semester: Tuple[str, int]
-    course_list = List[Tuple[str, str, str, str]]
+    course_list = List[BUCourse]
     driver_path: str
+    should_ignore_non_existent_courses: bool
 
     def __init__(self, config_path):
         with open(config_path, 'r') as config:
@@ -21,10 +23,13 @@ class Configurations:
         self.target_semester = self.__load_target_semester()
         self.course_list = self.__load_course_list()
         self.driver_path = self.__load_driver_path()
-
+        self.should_ignore_non_existent_courses = self.__load_should_ignore_non_existent_courses()
 
     def __load_planner(self) -> bool:
         planner_mode: bool = self.config['planner-mode']
+        if not isinstance(planner_mode, bool):
+            raise SyntaxError(F"Error! The \"planner-mode\" option must be a boolean (a True or False value with no "
+                              F"quotes). However, got, \"{planner_mode}\" which cannot be resolved to a boolean.")
         return planner_mode
 
     def __load_kerberos_username(self) -> str:
@@ -43,30 +48,30 @@ class Configurations:
         splits = target_semester.split(' ')
         return splits[0].lower(), int(splits[1])
 
-    def __load_course_list(self) -> List[Tuple[str, str, str, str]]:
+    def __load_course_list(self) -> Set[BUCourse]:
         courses: List[str] = self.config['course-list']
         # [School] [Department] [Course Number] [Section]
         course_pattern = re.compile('[a-zA-Z]{3} [a-zA-Z]{2,4} [0-9]{3} [A-Z][0-9]')
 
         failures: List[str] = []
-        course_tuples: List[Tuple[str, str, str, str]] = []
+        bu_courses: List[BUCourse] = []
         for course in courses:
             if course_pattern.match(course) is None:
                 failures += [F"'{course}' is not in the correct format. Example entry: CAS CS 111 A1"]
             else:
                 split = course.split(' ')
-                course_tuples += [(split[0], split[1], split[2], split[3])]
+                bu_courses += [BUCourse(split[0], split[1], split[2], split[3])]
         if len(failures) > 0:
             raise SyntaxError('Error(s): ' + ', '.join(failures))
 
-        if len(course_tuples) == 0:
+        if len(bu_courses) == 0:
             raise SyntaxError('Error! No courses were specified. I don\'t know what to register for!')
 
-        if len(course_tuples) > 10:
+        if len(bu_courses) > 10:
             raise SyntaxError('Error! To prevent abuse, are not allowed to use this bot to attempt to register '
                               'for more than 10 courses at once.')
 
-        return course_tuples
+        return set(bu_courses)
 
     def __load_driver_path(self) -> str:
         driver_path: str = self.config['driver-path']
@@ -77,3 +82,11 @@ class Configurations:
             raise SyntaxError(f'Error! No file exists at your specified driver path ({driver_path}).')
 
         return driver_path
+
+    def __load_should_ignore_non_existent_courses(self) -> bool:
+        ignore_non_existent_courses: bool = self.config['ignore-non-existent-courses']
+        if not isinstance(ignore_non_existent_courses, bool):
+            raise SyntaxError(F"Error! The \"ignore-non-existent-courses\" option must be a boolean (a True or False "
+                              F"value with no quotes). However, got, \"{ignore_non_existent_courses}\" which cannot "
+                              F"be resolved to a boolean.")
+        return ignore_non_existent_courses

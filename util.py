@@ -33,11 +33,11 @@ def create_logger():
 
     # Create a file handler that rotates daily
     log_filename = f'./logs/log-{datetime.now().strftime("%Y-%m-%d")}.log'
-    file_handler = TimedRotatingFileHandler(log_filename, when="midnight", interval=1, backupCount=7)
+    file_handler = TimedRotatingFileHandler(log_filename, when="midnight", interval=1, backupCount=0)
     file_handler.setLevel(logging.INFO)
     file_formatter = logging.Formatter(log_format)
     file_handler.setFormatter(file_formatter)
 
     # Add handlers to the logger
-    logging.basicConfig(level=logging.DEBUG, handlers=[console_handler, file_handler])
+    logging.basicConfig(level=logging.INFO, handlers=[console_handler, file_handler])
 

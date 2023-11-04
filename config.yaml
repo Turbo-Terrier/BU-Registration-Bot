@@ -37,3 +37,8 @@ course-list:
   - CAS CS 460 A1
   - CAS CS 460 A2
 
+# If you are trying to register for a course that does not exist,
+# should the bot complain (maybe you made a mistake?? If not set this to True.
+# Otherwise, leave it to False. One application of this might be that
+# if you know for a fact that a course will be added in the future.
+ignore-non-existent-courses: False
