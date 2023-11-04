@@ -10,7 +10,7 @@ from typing import List, Tuple, Dict, Union, Set
 import requests
 from bs4 import BeautifulSoup, ResultSet, Tag, NavigableString
 from selenium import webdriver
-from selenium.common import NoSuchElementException, StaleElementReferenceException
+from selenium.common import NoSuchElementException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 
@@ -419,7 +419,8 @@ class Registrar:
 
         except (AttributeError, AssertionError):
 
-            if page_title == "Boston University | Login":
+            if self.driver.title == "Boston University | Login" or \
+                    page_title == 'Web Login Service - Message Security Error':
                 logging.warning('Oops. We got logged out. Attempting to log back in...!')
                 if self.login() != Status.SUCCESS:
                     logging.critical('Re-login failed...! We cannot continue.')

@@ -3,23 +3,28 @@
 ### Prerequisites
 
 * Python3
-* Chrome Browser
+* Google Chrome
 
 ### Installation Steps
-### Windows
+#### Windows
 `cd Drive:\path\to\folder`
 
 `py -m venv env`
 
 `.\env\Scripts\activate`
 
-`pip3 install .\requirements.txt`
+`pip3 install -r .\requirements.txt`
 
-### Linux
+#### Linux
 `cd /path/to/folder`
 
 `python3 -m venv env`
 
 `source env/bin/activate`
 
-`pip3 install ./requirements.txt`
+`pip3 install -r ./requirements.txt`
+
+### Raspberry Pi
+`...`
+
+### Usage
