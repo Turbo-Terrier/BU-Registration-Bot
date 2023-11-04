@@ -15,6 +15,7 @@ from selenium.common import NoSuchElementException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 
+from thread_safe_bool import ThreadSafeBoolean
 from configuration import Configurations
 from course import BUCourse
 from status import Status
@@ -44,12 +45,15 @@ class Registrar:
     credentials: Tuple[str, str]
     should_ignore_non_existent_courses: bool
 
-    thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=min(4, os.cpu_count()))
+    thread_pool: concurrent.futures.ThreadPoolExecutor = concurrent.futures.\
+        ThreadPoolExecutor(max_workers=min(4, os.cpu_count()))
     # for tracking errors, if too many successive errors happen for the same
     # course, we stop trying that course
     course_consecutive_error_counter: Dict[BUCourse, int] = defaultdict(lambda: 0)
     # total error counter, if too many successive errors happen, we exit
     all_consecutive_error_counter: int = 0
+    # tracker keeping track of whether we are logged in
+    is_logged_in: ThreadSafeBoolean = ThreadSafeBoolean(False)
 
     def __init__(self, credentials: Tuple[str, str], config: Configurations):
 
@@ -161,6 +165,7 @@ class Registrar:
                 time.sleep(2)
 
         logging.info(F'Successfully logged into {username}\'s account!')
+        self.is_logged_in.set_flag(True)
         return Status.SUCCESS
 
     """
@@ -300,7 +305,7 @@ class Registrar:
                             f"Check logs for more info.")
             return Status.FAILURE
 
-        params_browse = self.get_parameters(course)
+        params_browse = self.__get_parameters(course)
         url_with_params = f"{STUDENT_LINK_URL}?{'&'.join([f'{key}={value}' for key, value in params_browse.items()])}"
         self.driver.get(url_with_params)
 
@@ -378,6 +383,7 @@ class Registrar:
             # if we got logged out log back in
             if self.driver.title == 'Boston University | Login':
                 logging.warning(f'Failed to attempt registration for {course} because we are logged out!')
+                self.is_logged_in.set_flag(False)
                 if self.__check_if_logged_out() == Status.ERROR:
                     logging.critical('Re-login failed...! We cannot continue.')
                     return Status.ERROR
@@ -404,8 +410,8 @@ class Registrar:
                           F"but state expected the URL to be {STUDENT_LINK_URL}?ModuleName={self.module}.")
             return Status.ERROR
 
-        params_browse = self.get_parameters(course)
-        headers = self.get_headers()
+        params_browse = self.__get_parameters(course)
+        headers = self.__get_headers()
         res = requests.get(STUDENT_LINK_URL, params=params_browse, headers=headers)
         parser = BeautifulSoup(res.text, 'html.parser')
 
@@ -453,6 +459,7 @@ class Registrar:
                 logging.warning(f'Failed to check class status for {course} because we are no longer logged in...')
                 # we don't increment fail counters for this
                 # also, since this is a different thread, we can't relog from here
+                self.is_logged_in.set_flag(False)
                 return Status.FAILURE
             else:
                 self.all_consecutive_error_counter += 1
@@ -466,7 +473,7 @@ class Registrar:
                 return Status.ERROR
 
     def __check_if_logged_out(self) -> Status:
-        if self.driver.title == "Boston University | Login":
+        if self.driver.title == "Boston University | Login" or not self.is_logged_in.get_flag():
             logging.warning('Oops. We got logged out. Attempting to log back in...!')
             if self.login() != Status.SUCCESS:
                 return Status.ERROR
@@ -476,7 +483,7 @@ class Registrar:
         else:
             return Status.SUCCESS
 
-    def get_parameters(self, bu_course: BUCourse):
+    def __get_parameters(self, bu_course: BUCourse):
         college, dept, course_code, section = \
             bu_course.college, \
                 bu_course.dept, \
@@ -501,7 +508,7 @@ class Registrar:
             'ShoppingCartList': ''
         }
 
-    def get_headers(self):
+    def __get_headers(self):
         return {
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,'
                       '*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
