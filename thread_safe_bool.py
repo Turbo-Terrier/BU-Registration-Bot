@@ -7,9 +7,9 @@ to maintain proper state.
 class ThreadSafeBoolean:
     flag: bool
 
-    def __init__(self):
+    def __init__(self, initial_value=False):
         self.lock = threading.Lock()
-        self.flag = False
+        self.flag = initial_value
 
     def get_flag(self):
         with self.lock:
