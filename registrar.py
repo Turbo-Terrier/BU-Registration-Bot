@@ -1,6 +1,7 @@
 import concurrent.futures
 import logging
 import os
+import threading
 import time
 import traceback
 from collections import defaultdict
@@ -83,7 +84,8 @@ class Registrar:
             self.driver.close()
             self.driver.quit()
         except Exception:
-            ...  # ignored
+            print()
+            # do nothing
 
     def __duo_login(self):
         try:
@@ -110,6 +112,9 @@ class Registrar:
     """
 
     def logout(self) -> Status:
+        assert threading.current_thread().__class__.__name__ == '_MainThread', "Error! Attempted kerberos login-off " \
+                                                                               "from a non-main thread."
+
         try:
             self.driver.get(f"{STUDENT_LINK_URL}?ModuleName=regsched.pl")
             logout_button = self.driver.find_element(By.XPATH,
@@ -121,6 +126,8 @@ class Registrar:
             return Status.ERROR
 
     def login(self, override_credentials=None) -> Status:
+        assert threading.current_thread().__class__.__name__ == '_MainThread', "Error! Attempted kerberos login " \
+                                                                               "from a non-main thread."
 
         if override_credentials is not None:
             self.credentials = override_credentials
@@ -162,6 +169,10 @@ class Registrar:
     """
 
     def navigate(self):
+        assert threading.current_thread().__class__.__name__ == '_MainThread', "Error! Attempted to navigate to the " \
+                                                                               "registration page from a non-main " \
+                                                                               "thread."
+
         self.driver.get(
             f'{STUDENT_LINK_URL}?ModuleName=reg/option/_start.pl&ViewSem={self.season}%20{self.year}&KeySem={self.semester_key}')
         # note: the tbody tag is injected by chrome
@@ -188,7 +199,15 @@ class Registrar:
 
             start = time.time()
 
+            # calculate the time to sleep in advance in case amount of courses change
             min_wait_time = (len(self.target_courses) / MAX_REQUESTS_PER_SECOND) * 60  # min to wait based on MAX_REQS
+
+            # Check login status
+            if self.__check_if_logged_out() == Status.ERROR:
+                logging.critical('Re-login failed...! We cannot continue.')
+                self.graceful_exit()
+                return Status.ERROR
+
             # find registrable courses
             futures: List[Future[Status]] = []
             courses_and_results: List[Tuple[BUCourse, Future[Status]]] = []
@@ -203,6 +222,12 @@ class Registrar:
                 time.sleep(0.2)  # a small delay to prevent way too many requests together
             # wait for the threads to finish
             concurrent.futures.wait(futures)
+
+            # Check login status
+            if self.__check_if_logged_out() == Status.ERROR:
+                logging.critical('Re-login failed...! We cannot continue.')
+                self.graceful_exit()
+                return Status.ERROR
 
             # get the list of courses that we can potentially register for
             registrable_courses: List[BUCourse] = []
@@ -252,7 +277,6 @@ class Registrar:
             for r in original - self.target_courses:
                 logging.info(f"   - {r}")
 
-            # calculate the time to sleep
             execution_time = time.time() - start
             time_to_wait = min_wait_time - execution_time
             if time_to_wait > 0:
@@ -267,6 +291,9 @@ class Registrar:
         return Status.SUCCESS
 
     def __register_course(self, course: BUCourse) -> Status.SUCCESS:
+
+        assert threading.current_thread().__class__.__name__ == '_MainThread', "Error! Attempted course registration " \
+                                                                               "login from a non-main thread."
 
         if self.course_consecutive_error_counter[course] > RETRY_LIMIT:
             logging.warning(f"Skipped course registration attempt for {course} due to too many failures."
@@ -350,12 +377,14 @@ class Registrar:
         except (Exception) as e:
             # if we got logged out log back in
             if self.driver.title == 'Boston University | Login':
-                logging.warning('Oops. We got logged out. Attempting to log back in...!')
-                if self.login() != Status.SUCCESS:
+                logging.warning(f'Failed to attempt registration for {course} because we are logged out!')
+                if self.__check_if_logged_out() == Status.ERROR:
                     logging.critical('Re-login failed...! We cannot continue.')
                     return Status.ERROR
                 else:
-                    self.navigate()
+                    # increment fail counters and try again next time
+                    self.all_consecutive_error_counter += 1
+                    self.course_consecutive_error_counter[course] += 1
                     return Status.FAILURE
             else:
                 # if something else happened, increment the error counter and try again
@@ -421,13 +450,10 @@ class Registrar:
 
             if self.driver.title == "Boston University | Login" or \
                     page_title == 'Web Login Service - Message Security Error':
-                logging.warning('Oops. We got logged out. Attempting to log back in...!')
-                if self.login() != Status.SUCCESS:
-                    logging.critical('Re-login failed...! We cannot continue.')
-                    return Status.ERROR
-                else:
-                    self.navigate()
-                    return Status.FAILURE
+                logging.warning(f'Failed to check class status for {course} because we are no longer logged in...')
+                # we don't increment fail counters for this
+                # also, since this is a different thread, we can't relog from here
+                return Status.FAILURE
             else:
                 self.all_consecutive_error_counter += 1
                 self.course_consecutive_error_counter[course] += 1
@@ -438,6 +464,17 @@ class Registrar:
                 logging.error('Unexpected page. Something went wrong. Read above dump for more info.')
 
                 return Status.ERROR
+
+    def __check_if_logged_out(self) -> Status:
+        if self.driver.title == "Boston University | Login":
+            logging.warning('Oops. We got logged out. Attempting to log back in...!')
+            if self.login() != Status.SUCCESS:
+                return Status.ERROR
+            else:
+                self.navigate()
+                return Status.FAILURE
+        else:
+            return Status.SUCCESS
 
     def get_parameters(self, bu_course: BUCourse):
         college, dept, course_code, section = \
