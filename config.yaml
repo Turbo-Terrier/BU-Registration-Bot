@@ -1,6 +1,12 @@
-# You should leave this blank unless the program is unable to
-# automatically detect where chrome drivers are.
-driver-path: ''
+# Put your license key for this software here. Without this key,
+# you will not be able to use the full features of this software :(
+license-key: ''
+
+# Kerberos Username: this is most likely the 'user' part of your
+#  user@bu.edu email.
+# (Note: due to security reasons, you cannot save your password
+# into this config and must enter it every time manually!)
+kerberos-user: 'aseef'
 
 # Whether to enable REAL registrations. When this is set to
 # 'True', courses will only be added to the planner. It is
@@ -11,12 +17,6 @@ driver-path: ''
 # - True
 # - False
 planner-mode: False
-
-# Kerberos Username: this is most likely the 'user' part of your
-#  user@bu.edu email.
-# (Note: due to security reasons, you cannot save your password
-# into this config and must enter it every time manually!)
-kerberos-user: 'aseef'
 
 # The semester you are trying to register for.
 # Format: [Semester Season] [Year]
@@ -42,3 +42,7 @@ course-list:
 # Otherwise, leave it to False. One application of this might be that
 # if you know for a fact that a course will be added in the future.
 ignore-non-existent-courses: False
+
+# You should leave this blank unless the program is unable to
+# automatically detect where chrome drivers are.
+driver-path: ''

@@ -2,11 +2,11 @@ import concurrent.futures
 import logging
 import os
 import threading
+
 import time
 import traceback
-from collections import defaultdict
 from concurrent.futures import Future
-from typing import List, Tuple, Dict, Union, Set
+from typing import List, Tuple, Union, Set
 
 import requests
 from bs4 import BeautifulSoup, ResultSet, Tag, NavigableString
@@ -15,15 +15,17 @@ from selenium.common import NoSuchElementException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 
-from thread_safe_bool import ThreadSafeBoolean
-from configuration import Configurations
-from course import BUCourse
-from status import Status
+from core.threadsafe.thread_safe_bool import ThreadSafeBoolean
+from core.threadsafe.thread_safe_dict import ThreadSafeDefaultDict
+from core.threadsafe.thread_safe_int import ThreadSafeInt
+from core.configuration import Configurations
+from core.bu_course import BUCourse
+from core.status import Status
 
 STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
 REGISTER_SUCCESS_ICON = 'https://www.bu.edu/link/student/images/checkmark.gif'
 REGISTER_FAILED_ICON = 'https://www.bu.edu/link/student/images/xmark.gif'
-RETRY_LIMIT = 3
+RETRY_LIMIT = 5
 MAX_REQUESTS_PER_SECOND = 90
 # each semester season has an id
 SEMESTER_ID_DICT = {
@@ -32,7 +34,6 @@ SEMESTER_ID_DICT = {
     'summer2': 2,
     'fall': 3
 }
-
 
 class Registrar:
     driver: webdriver
@@ -46,12 +47,12 @@ class Registrar:
     should_ignore_non_existent_courses: bool
 
     thread_pool: concurrent.futures.ThreadPoolExecutor = concurrent.futures.\
-        ThreadPoolExecutor(max_workers=min(4, os.cpu_count()))
+        ThreadPoolExecutor(max_workers=min(4, os.cpu_count() // 2))
     # for tracking errors, if too many successive errors happen for the same
     # course, we stop trying that course
-    course_consecutive_error_counter: Dict[BUCourse, int] = defaultdict(lambda: 0)
+    course_consecutive_error_counter: ThreadSafeDefaultDict[BUCourse, int] = ThreadSafeDefaultDict(lambda: 0)
     # total error counter, if too many successive errors happen, we exit
-    all_consecutive_error_counter: int = 0
+    all_consecutive_error_counter: ThreadSafeInt = ThreadSafeInt(0)
     # tracker keeping track of whether we are logged in
     is_logged_in: ThreadSafeBoolean = ThreadSafeBoolean(False)
 
@@ -79,6 +80,9 @@ class Registrar:
         self.should_ignore_non_existent_courses = config.should_ignore_non_existent_courses
 
     def graceful_exit(self):
+        # TODO: remove
+        traceback.print_exc()
+
         logging.info('Closing thread pools...')
         self.thread_pool.shutdown(wait=False)
         logging.info('Logging off...')
@@ -122,7 +126,7 @@ class Registrar:
         try:
             self.driver.get(f"{STUDENT_LINK_URL}?ModuleName=regsched.pl")
             logout_button = self.driver.find_element(By.XPATH,
-                                                     '//a/img[@src="https://www.bu.edu/link/student/images'
+                                                     '//a/img[@core="https://www.bu.edu/link/student/images'
                                                      '/header_logoff.gif"]')
             logout_button.click()
             return Status.SUCCESS
@@ -241,10 +245,10 @@ class Registrar:
                 if course_status == Status.SUCCESS:
                     registrable_courses += [bu_course]
                     self.course_consecutive_error_counter[bu_course] = 0
-                    self.all_consecutive_error_counter = 0
+                    self.all_consecutive_error_counter.set(0)
                 elif course_status == Status.ERROR:
                     self.course_consecutive_error_counter[bu_course] += 1
-                    self.all_consecutive_error_counter += 1
+                    self.all_consecutive_error_counter.increment()
 
             logging.info(f"Found {'no' if len(registrable_courses) == 0 else len(registrable_courses)} "
                          f"registrable course(s){'.' if len(registrable_courses) == 0 else '!'}")
@@ -262,7 +266,7 @@ class Registrar:
                     self.graceful_exit()
                     return Status.ERROR
 
-            if self.all_consecutive_error_counter > RETRY_LIMIT:
+            if self.all_consecutive_error_counter.get() > RETRY_LIMIT:
                 logging.critical('Number of successive failures has reached its threshold. We can no longer continue.')
                 self.graceful_exit()
                 return Status.ERROR
@@ -347,7 +351,7 @@ class Registrar:
 
                         if self.driver.title == 'Add Classes - Confirmation':
                             status_element = self.driver.find_element(By.XPATH, "//tr[@ALIGN='center'][@Valign='top']")
-                            status_icon_url = status_element.find_element(By.TAG_NAME, "img").get_attribute('src')
+                            status_icon_url = status_element.find_element(By.TAG_NAME, "img").get_attribute('core')
                             if status_icon_url == REGISTER_SUCCESS_ICON:
                                 return Status.SUCCESS
                             elif status_icon_url == REGISTER_FAILED_ICON:
@@ -371,7 +375,7 @@ class Registrar:
                             f"Can not register yet for {course} because registration is blocked (full class?)")
 
                     # reset error counters
-                    self.all_consecutive_error_counter = 0
+                    self.all_consecutive_error_counter.set(0)
                     self.course_consecutive_error_counter[course] = 0
 
             if not found:
@@ -389,17 +393,18 @@ class Registrar:
                     return Status.ERROR
                 else:
                     # increment fail counters and try again next time
-                    self.all_consecutive_error_counter += 1
+                    self.all_consecutive_error_counter.increment()
                     self.course_consecutive_error_counter[course] += 1
                     return Status.FAILURE
             else:
                 # if something else happened, increment the error counter and try again
-                self.all_consecutive_error_counter += 1
+                self.all_consecutive_error_counter.increment()
                 self.course_consecutive_error_counter[course] += 1
 
                 logging.error(traceback.format_exc())
                 logging.error(self.driver.page_source)
                 logging.error('Unexpected page. Something went wrong. Read above dump for more info.')
+                time.sleep(2)  # Sleep for a couple second as to delay the next request a bit
 
                 return Status.FAILURE
 
@@ -442,7 +447,7 @@ class Registrar:
                         return Status.FAILURE
                 else:
                     if not self.should_ignore_non_existent_courses:
-                        self.all_consecutive_error_counter += 1
+                        self.all_consecutive_error_counter.increment()
                         self.course_consecutive_error_counter[course] += 1
                         logging.error(
                             f"Error! Unable to find the course \'{course}\'. Are you sure this course exists?")
@@ -462,13 +467,14 @@ class Registrar:
                 self.is_logged_in.set_flag(False)
                 return Status.FAILURE
             else:
-                self.all_consecutive_error_counter += 1
+                self.all_consecutive_error_counter.increment()
                 self.course_consecutive_error_counter[course] += 1
 
                 logging.error(traceback.format_exc())
                 logging.error(res.text)
 
                 logging.error('Unexpected page. Something went wrong. Read above dump for more info.')
+                time.sleep(2)  # Sleep for a couple second as to delay the next request a bit
 
                 return Status.ERROR
 

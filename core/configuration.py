@@ -4,7 +4,7 @@ from typing import Tuple, List, Set
 
 import yaml
 
-from course import BUCourse
+from core.bu_course import BUCourse
 
 
 class Configurations:
@@ -14,6 +14,7 @@ class Configurations:
     course_list = List[BUCourse]
     driver_path: str
     should_ignore_non_existent_courses: bool
+    license_key: str
 
     def __init__(self, config_path):
         with open(config_path, 'r') as config:
@@ -24,6 +25,7 @@ class Configurations:
         self.course_list = self.__load_course_list()
         self.driver_path = self.__load_driver_path()
         self.should_ignore_non_existent_courses = self.__load_should_ignore_non_existent_courses()
+        self.license_key = self.__load_license_key()
 
     def __load_planner(self) -> bool:
         planner_mode: bool = self.config['planner-mode']
@@ -90,3 +92,7 @@ class Configurations:
                               F"value with no quotes). However, got, \"{ignore_non_existent_courses}\" which cannot "
                               F"be resolved to a boolean.")
         return ignore_non_existent_courses
+
+    def __load_license_key(self) -> str:
+        license_key: str = self.config['ignore-non-existent-courses']
+        return license_key

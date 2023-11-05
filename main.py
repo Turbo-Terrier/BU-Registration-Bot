@@ -1,10 +1,10 @@
-# adapted from https://github.com/juliusfrost/BU-Registration-Bot/blob/master/reg.py
 import logging
+import traceback
 from getpass import getpass
 
-import util
-from configuration import Configurations
-from registrar import Registrar, Status
+from core import util
+from core.configuration import Configurations
+from core.registrar import Registrar, Status
 
 
 def main() -> int:
@@ -35,8 +35,9 @@ def main() -> int:
         else:
             logging.warning(f'Unable to register for {len(config.course_list)} courses ;(')
             return 1
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as e:
         logging.warning('Script interrupted. Cleaning up and exiting...')
+        traceback.print_exc()
     finally:
         registrar.graceful_exit()
         return 1
