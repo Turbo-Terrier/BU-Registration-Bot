@@ -1,12 +1,15 @@
 import concurrent.futures
 import logging
+import math
 import os
+import statistics
 import threading
 
 import time
 import traceback
+from collections import defaultdict
 from concurrent.futures import Future
-from typing import List, Tuple, Union, Set
+from typing import List, Tuple, Union, Set, Dict
 
 import requests
 from bs4 import BeautifulSoup, ResultSet, Tag, NavigableString
@@ -24,7 +27,7 @@ from core.status import Status
 STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
 REGISTER_SUCCESS_ICON = 'https://www.bu.edu/link/student/images/checkmark.gif'
 REGISTER_FAILED_ICON = 'https://www.bu.edu/link/student/images/xmark.gif'
-RETRY_LIMIT = 5
+RETRY_LIMIT = 5  # Note: retry limit should ideally be at least the number of threads + 1
 MAX_REQUESTS_PER_SECOND = 90
 # each semester season has an id
 SEMESTER_ID_DICT = {
@@ -79,8 +82,8 @@ class Registrar:
         self.should_ignore_non_existent_courses = config.should_ignore_non_existent_courses
 
     def graceful_exit(self):
-        # TODO: remove
-        traceback.print_exc()
+        # TODO: remove later?
+        logging.warning(traceback.format_exc())
 
         logging.info('Closing thread pools...')
         self.thread_pool.shutdown(wait=False)
@@ -202,6 +205,7 @@ class Registrar:
     def find_courses(self) -> Status.SUCCESS:
         search_start = time.time()
         original: Set[BUCourse] = self.target_courses.copy()
+        cycle_durations = []
 
         while len(self.target_courses) != 0:  # keep trying until all courses are registered
 
@@ -227,7 +231,8 @@ class Registrar:
                 submitted_request = self.thread_pool.submit(self.__is_course_available, course)
                 futures += [submitted_request]
                 courses_and_results += [(course, submitted_request)]
-                time.sleep(0.2)  # a small delay to prevent way too many requests together
+                time.sleep(0.4)  # a small delay to prevent way too many requests together
+                # ^ todo, maybe make this a dynamic val?
             # wait for the threads to finish
             concurrent.futures.wait(futures)
 
@@ -275,7 +280,7 @@ class Registrar:
                 return Status.ERROR
 
             # print the State of the Union
-            logging.info('-----------------------------')
+            logging.info('----------------------------------')
             duration = (time.time() - search_start)
             logging.info(f'Running Time: {round(duration / 60 / 60, 2)} hours.')
             logging.info(
@@ -294,9 +299,14 @@ class Registrar:
             if time_to_wait > 0:
                 time.sleep(time_to_wait)
 
-            logging.info(f'Cycle Duration: {round(execution_time, 3)} seconds')
-            logging.info(f'Sleep Time: {round(max(time_to_wait, 0), 3)} seconds')
-            logging.info('-----------------------------')
+            cycle_durations += [execution_time]
+            cycle_durations = cycle_durations[-25:]
+
+            logging.info(f'Current Cycle Duration: {round(execution_time, 3)} seconds')
+            logging.info(f'Average Cycle Duration (c={len(cycle_durations)}): '
+                         f'{round(statistics.mean(cycle_durations), 3)} seconds')
+            logging.info(f'Current Sleep Time: {round(max(time_to_wait, 0), 3)} seconds')
+            logging.info('----------------------------------')
 
         # we are done!
         self.graceful_exit()

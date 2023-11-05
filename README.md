@@ -28,3 +28,7 @@ The basic steps for installation are as follows. Please note, on some systems, a
 `pip3 install -r ./requirements.txt`
 
 ### Usage
+
+```pyinstaller -F main.py```
+
+`pyarmor gen --enable-jit --assert-call --assert-import --restrict --platform windows.x86_64 --platform linux.x86_64 --platform linux.aarch64 --platform linux.armv7 --platform darwin.x86_64 -O obfdist --pack dist/main.exe ./`
