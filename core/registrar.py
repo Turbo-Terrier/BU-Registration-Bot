@@ -365,7 +365,6 @@ class Registrar:
                         if self.driver.title == 'Add Classes - Confirmation':
                             status_element = self.driver.find_element(By.XPATH, "//tr[@ALIGN='center'][@Valign='top']")
                             status_icon_url = status_element.find_element(By.TAG_NAME, "img").get_attribute('src')
-                            logging.error(status_icon_url)
                             if status_icon_url == REGISTER_SUCCESS_ICON:
                                 return Status.SUCCESS
                             elif status_icon_url == REGISTER_FAILED_ICON:
