@@ -6,13 +6,13 @@ class ThreadSafeInt:
         self.lock = threading.Lock()
         self.value = default_value
 
-    def increment(self):
+    def increment(self, amnt=1):
         with self.lock:
-            self.value += 1
+            self.value += amnt
 
-    def decrement(self):
+    def decrement(self, amnt=1):
         with self.lock:
-            self.value -= 1
+            self.value -= amnt
 
     def set(self, val):
         with self.lock:

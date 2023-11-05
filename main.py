@@ -49,7 +49,7 @@ if __name__ == "__main__":
 
 # TODO: get a list of registered courses and remove them from the list of courses
 # TODO: support for switching sections
-# TODO: support for 'registering for ONE of these' --- NAH
+# TODO: support for 'registering for ONE of these'
 # TODO: support to query currently registered courses
 # TODO: smtp and/or phone message support
 # TODO: Config option for wait duration

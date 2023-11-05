@@ -16,7 +16,6 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 
 from core.threadsafe.thread_safe_bool import ThreadSafeBoolean
-from core.threadsafe.thread_safe_dict import ThreadSafeDefaultDict
 from core.threadsafe.thread_safe_int import ThreadSafeInt
 from core.configuration import Configurations
 from core.bu_course import BUCourse
@@ -49,8 +48,8 @@ class Registrar:
     thread_pool: concurrent.futures.ThreadPoolExecutor = concurrent.futures.\
         ThreadPoolExecutor(max_workers=min(4, os.cpu_count() // 2))
     # for tracking errors, if too many successive errors happen for the same
-    # course, we stop trying that course
-    course_consecutive_error_counter: ThreadSafeDefaultDict[BUCourse, int] = ThreadSafeDefaultDict(lambda: 0)
+    # course, we stop trying that course -- TODO: defaultdicts supposedly a threadsafe on cpython, re-eval later
+    course_consecutive_error_counter: Dict[BUCourse, int] = defaultdict(lambda: 0)
     # total error counter, if too many successive errors happen, we exit
     all_consecutive_error_counter: ThreadSafeInt = ThreadSafeInt(0)
     # tracker keeping track of whether we are logged in
@@ -239,11 +238,15 @@ class Registrar:
                 return Status.ERROR
 
             # get the list of courses that we can potentially register for
+            # and set the error counters here as well
             registrable_courses: List[BUCourse] = []
             for bu_course, future_result in courses_and_results:
                 course_status = future_result.result()
                 if course_status == Status.SUCCESS:
                     registrable_courses += [bu_course]
+                    self.course_consecutive_error_counter[bu_course] = 0
+                    self.all_consecutive_error_counter.set(0)
+                elif course_status == Status.FAILURE:
                     self.course_consecutive_error_counter[bu_course] = 0
                     self.all_consecutive_error_counter.set(0)
                 elif course_status == Status.ERROR:
@@ -363,6 +366,7 @@ class Registrar:
                                     return Status.SUCCESS  # since we are already registered, lets call it a "success"
                                 return Status.FAILURE
                             else:  # this case should never happen if I made this right
+                                logging.critical("Unknown registration state. This should NEVER happen!")
                                 return Status.ERROR
                         elif self.driver.title == 'Error':
                             logging.warning(f'Can not register yet for {course}...')
@@ -447,8 +451,6 @@ class Registrar:
                         return Status.FAILURE
                 else:
                     if not self.should_ignore_non_existent_courses:
-                        self.all_consecutive_error_counter.increment()
-                        self.course_consecutive_error_counter[course] += 1
                         logging.error(
                             f"Error! Unable to find the course \'{course}\'. Are you sure this course exists?")
                         return Status.ERROR
@@ -467,9 +469,6 @@ class Registrar:
                 self.is_logged_in.set_flag(False)
                 return Status.FAILURE
             else:
-                self.all_consecutive_error_counter.increment()
-                self.course_consecutive_error_counter[course] += 1
-
                 logging.error(traceback.format_exc())
                 logging.error(res.text)
 
