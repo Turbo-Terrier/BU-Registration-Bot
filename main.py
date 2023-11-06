@@ -5,27 +5,67 @@ from getpass import getpass
 from core import util
 from core.configuration import Configurations
 from core.registrar import Registrar, Status
+from core.util import LogColors
 
 
 def main() -> int:
     # setup logger
-    util.create_logger()
+    util.register_logger(False, False)
 
     # load config
-    logging.info('Loading program config...')
     try:
         config = Configurations('./config.yaml')
     except SyntaxError as e:
         logging.critical(e)
         return 1
 
+    if config.is_debug_mode:
+        util.register_logger(True, config.is_console_colored)
+        logging.debug("Debug mode has been enabled.")
+    else:
+        util.register_logger(False, config.is_console_colored)
+
+    logging.info(util.color_message("##############################################", LogColors.CYAN))
+    logging.info(util.color_message("##", LogColors.CYAN) +
+                 util.color_message("    Welcome to the BU Registration Bot    ", LogColors.YELLOW) +
+                 util.color_message("##", LogColors.CYAN))
+    logging.info(util.color_message("##", LogColors.CYAN) +
+                 util.color_message("       Created By: contact@aseef.dev      ", LogColors.LIGHT_GRAY) +
+                 util.color_message("##", LogColors.CYAN))
+    logging.info(util.color_message("##                                          ##", LogColors.CYAN))
+    logging.info(util.color_message("##", LogColors.CYAN) +
+                 util.color_message("           Version  0.1.0-BETA            ", LogColors.GRAY) +
+                 util.color_message("##", LogColors.CYAN))
+    logging.info(util.color_message("##############################################", LogColors.CYAN))
+    logging.info("")
+
+    if False:  # TODO Finish Licensing
+        logging.info(util.color_message("THANK YOU for purchasing the premium version of this product. Your license "
+                                        "is now active!", LogColors.PURPLE))
+    else:
+        logging.info(util.color_message(" You are using a trial version of this product.", LogColors.LIGHT_RED))
+        logging.info(util.color_message("  * Registration for only a single course allowed.", LogColors.BRIGHT_BLUE))
+        logging.info(util.color_message("  * Checks less frequently for open classes (10 requests / min).",
+                                        LogColors.BRIGHT_BLUE))
+        logging.info(util.color_message("  * Only limited support offered for issues.",
+                                        LogColors.BRIGHT_BLUE))
+        logging.info(util.color_message("Upgrade to the full version of this product for:", LogColors.LIGHT_RED))
+        logging.info(util.color_message("  * Unlimited registrations (up to 10 at a time)", LogColors.BRIGHT_BLUE))
+        logging.info(
+            util.color_message("  * x9 Faster checks for open class (90 requests / min)", LogColors.BRIGHT_BLUE))
+        logging.info(util.color_message("  * Premium Support Offered", LogColors.BRIGHT_BLUE))
+        logging.info("")
+
+    input("Press enter to continue...")
+
     username = config.kerberos_username
-    creds = (username, getpass(f'Password for {username} [secure input]: '))
+    creds = (username, getpass(f'Password for {username} [won\'t be display on screen]: '))
 
     registrar = Registrar(creds, config)
 
     try:
-        while registrar.login() != Status.SUCCESS:
+        logging.debug(f"Now attempting to login for user {username} with credentials {'*' * len(creds[1])}...")
+        if registrar.login() != Status.SUCCESS:
             logging.critical('Login failed! Invalid credentials?')
             return 1
         registrar.navigate()
@@ -47,12 +87,11 @@ if __name__ == "__main__":
     status = main()
     exit(status)
 
-# TODO: get a list of registered courses and remove them from the list of courses
-# TODO: support for switching sections
-# TODO: support for 'registering for ONE of these'
-# TODO: support to query currently registered courses
+# TODO: support for 'registering for ONE of these' **
+# TODO: add support to automatically register as soon as registration starts **
+# TODO: support for switching sections **
 # TODO: smtp and/or phone message support
-# TODO: Config option for wait duration
-# TODO: Config option for browser to use + add more browser support
-# TODO: switch to helium for speed?
-# TODO: add support to automatically register as soon as registration starts
+# TODO: finish licensing
+# TODO: update checker
+
+# TODO: Config option for browser to use + add more browser support?

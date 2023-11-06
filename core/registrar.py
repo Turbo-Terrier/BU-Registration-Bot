@@ -1,10 +1,8 @@
 import concurrent.futures
 import logging
-import math
 import os
 import statistics
 import threading
-
 import time
 import traceback
 from collections import defaultdict
@@ -18,11 +16,11 @@ from selenium.common import NoSuchElementException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 
+from core.bu_course import BUCourse
+from core.configuration import Configurations
+from core.status import Status
 from core.threadsafe.thread_safe_bool import ThreadSafeBoolean
 from core.threadsafe.thread_safe_int import ThreadSafeInt
-from core.configuration import Configurations
-from core.bu_course import BUCourse
-from core.status import Status
 
 STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
 REGISTER_SUCCESS_ICON = 'https://www.bu.edu/link/student/images/checkmark.gif'
@@ -138,7 +136,6 @@ class Registrar:
     def login(self, override_credentials=None) -> Status:
         assert threading.current_thread().__class__.__name__ == '_MainThread', "Error! Attempted kerberos login " \
                                                                                "from a non-main thread."
-
         if override_credentials is not None:
             self.credentials = override_credentials
 

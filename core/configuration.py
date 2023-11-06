@@ -15,6 +15,8 @@ class Configurations:
     driver_path: str
     should_ignore_non_existent_courses: bool
     license_key: str
+    is_debug_mode: bool
+    is_console_colored: bool
 
     def __init__(self, config_path):
         with open(config_path, 'r') as config:
@@ -26,12 +28,14 @@ class Configurations:
         self.driver_path = self.__load_driver_path()
         self.should_ignore_non_existent_courses = self.__load_should_ignore_non_existent_courses()
         self.license_key = self.__load_license_key()
+        self.is_debug_mode = self.__load_is_debug_mode()
+        self.is_console_colored = self.__load_is_console_colored()
 
     def __load_planner(self) -> bool:
         planner_mode: bool = self.config['planner-mode']
         if not isinstance(planner_mode, bool):
             raise SyntaxError(F"Error! The \"planner-mode\" option must be a boolean (a True or False value with no "
-                              F"quotes). However, got, \"{planner_mode}\" which cannot be resolved to a boolean.")
+                              F"quotes). However, got, \"{planner_mode}\", which cannot be resolved to a boolean.")
         return planner_mode
 
     def __load_kerberos_username(self) -> str:
@@ -89,10 +93,25 @@ class Configurations:
         ignore_non_existent_courses: bool = self.config['ignore-non-existent-courses']
         if not isinstance(ignore_non_existent_courses, bool):
             raise SyntaxError(F"Error! The \"ignore-non-existent-courses\" option must be a boolean (a True or False "
-                              F"value with no quotes). However, got, \"{ignore_non_existent_courses}\" which cannot "
+                              F"value with no quotes). However, got, \"{ignore_non_existent_courses}\", which cannot "
                               F"be resolved to a boolean.")
         return ignore_non_existent_courses
 
     def __load_license_key(self) -> str:
-        license_key: str = self.config['ignore-non-existent-courses']
+        license_key: str = self.config['license-key']
         return license_key
+
+    def __load_is_debug_mode(self) -> bool:
+        is_debug_mode: bool = self.config['debug']
+        if not isinstance(is_debug_mode, bool):
+            raise SyntaxError(F"Error! The \"debug\" option must be a boolean (a True or False value with no quotes). "
+                              F"However, got, \"{is_debug_mode}\", which cannot be resolved to a boolean.")
+        return is_debug_mode
+
+    def __load_is_console_colored(self) -> bool:
+        is_console_colored: bool = self.config['console-colors']
+        if not isinstance(is_console_colored, bool):
+            raise SyntaxError(F"Error! The \"console-color\" option must be a boolean (a True or False value with no "
+                              F"quotes). However, got, \"{is_console_colored}\", which cannot be resolved to a boolean.")
+        return is_console_colored
+
