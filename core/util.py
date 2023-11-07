@@ -5,7 +5,7 @@ from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 
 from core.logging_formatter import LogColors, CustomFormatter
-
+from selenium import webdriver
 
 def get_logs_dir() -> str:
     return './logs'
@@ -22,6 +22,16 @@ def get_arch():
 def get_machine():
     return platform.machine()
 
+
+def get_chrome_options():
+    options = webdriver.ChromeOptions()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('enable-automation')
+    options.add_argument('--blink-settings=imagesEnabled=false')  # disable image loading to speed stuff up a bit
+    return options
 
 def register_logger(debug: bool, colors: bool):
     os.makedirs(get_logs_dir(), exist_ok=True)

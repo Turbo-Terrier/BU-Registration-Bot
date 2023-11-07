@@ -1,6 +1,7 @@
 import logging
 from enum import Enum
 
+
 class CustomFormatter(logging.Formatter):
 
     def format(self, record):
@@ -27,6 +28,7 @@ class CustomFormatter(logging.Formatter):
             return f'{LogColors.GRAY.value}[%(asctime)s] {LogColors.BOLD_WHITE.value}[%(levelname)s] ' \
                    f'{LogColors.WHITE.value}%(message)s{LogColors.RESET.value}'
 
+
 class LogColors(Enum):
     RESET = '\033[0m'
     BLACK = '\033[30m'
@@ -38,6 +40,7 @@ class LogColors(Enum):
     BLUE = '\033[34m'
     BRIGHT_BLUE = '\033[94m'
     PURPLE = '\033[35m'
+    PINK = '\033[95m'
     CYAN = '\033[36m'
     WHITE = '\033[97m'
     GRAY = '\033[90m'
@@ -51,6 +54,7 @@ class LogColors(Enum):
     BOLD_BLUE = '\033[1;34m'
     BOLD_BRIGHT_BLUE = '\033[1;94m'
     BOLD_PURPLE = '\033[1;35m'
+    BOLD_PINK = '\033[1;95m'
     BOLD_CYAN = '\033[1;36m'
     BOLD_WHITE = '\033[97;1m'
     BACKGROUND_BLACK = '\033[40m'

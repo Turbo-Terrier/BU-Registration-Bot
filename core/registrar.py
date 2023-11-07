@@ -16,6 +16,7 @@ from selenium.common import NoSuchElementException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 
+from core import util
 from core.bu_course import BUCourse
 from core.configuration import Configurations
 from core.status import Status
@@ -26,7 +27,6 @@ STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
 REGISTER_SUCCESS_ICON = 'https://www.bu.edu/link/student/images/checkmark.gif'
 REGISTER_FAILED_ICON = 'https://www.bu.edu/link/student/images/xmark.gif'
 RETRY_LIMIT = 5  # Note: retry limit should ideally be at least the number of threads + 1
-MAX_REQUESTS_PER_SECOND = 90
 # each semester season has an id
 SEMESTER_ID_DICT = {
     'spring': 4,
@@ -45,6 +45,9 @@ class Registrar:
     semester_key: str
     credentials: Tuple[str, str]
     should_ignore_non_existent_courses: bool
+    is_premium: bool
+    max_requests_per_second_total: int
+    max_requests_per_second_per_course: int
 
     thread_pool: concurrent.futures.ThreadPoolExecutor = concurrent.futures.\
         ThreadPoolExecutor(max_workers=min(4, os.cpu_count() // 2))
@@ -56,20 +59,22 @@ class Registrar:
     # tracker keeping track of whether we are logged in
     is_logged_in: ThreadSafeBoolean = ThreadSafeBoolean(False)
 
-    def __init__(self, credentials: Tuple[str, str], config: Configurations):
+    def __init__(self, credentials: Tuple[str, str], config: Configurations, is_premium: bool):
+        """
+        :param credentials: the tuple containing a string username and a string password to BU Kerberos
+        :param config: the program config
+        :param is_premium: whether this is a licensed user
+        """
 
-        options = webdriver.ChromeOptions()
-        options.add_argument('--headless')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--disable-gpu')
-        options.add_argument('enable-automation')
-        options.add_argument('--blink-settings=imagesEnabled=false')  # disable image loading to speed stuff up a bit
+        logging.debug(f"User's CPU count is {os.cpu_count()}. Set max workers to {self.thread_pool._max_workers}.")
 
+        options = util.get_chrome_options()
         service = Service() if config.driver_path == '' else Service(executable_path=config.driver_path)
+        logging.debug(f"Initializing chrome driver with service_url={service.service_url} path={service.path}...")
         self.driver = webdriver.Chrome(options=options, service=service)
-
         self.driver.set_page_load_timeout(30)
+        logging.debug(f"Browser initialized!")
+
         self.is_planner = config.is_planner
         self.module = 'reg/plan/add_planner.pl' if self.is_planner else 'reg/add/confirm_classes.pl'
         self.target_courses = config.course_list
@@ -78,10 +83,11 @@ class Registrar:
         self.semester_key = str(self.year) + str(SEMESTER_ID_DICT[self.season.lower()])
         self.credentials = credentials
         self.should_ignore_non_existent_courses = config.should_ignore_non_existent_courses
+        self.is_premium = is_premium
+        self.max_requests_per_second_total = 90 if is_premium else 5
+        self.max_requests_per_second_per_course = 5 if is_premium else 30
 
     def graceful_exit(self):
-        # TODO: remove later?
-        logging.warning(traceback.format_exc())
 
         logging.info('Closing thread pools...')
         self.thread_pool.shutdown(wait=False)
@@ -138,15 +144,19 @@ class Registrar:
                                                                                "from a non-main thread."
         if override_credentials is not None:
             self.credentials = override_credentials
+            logging.debug(f"Login attempted with new credentials for username={self.credentials[0]} and "
+                          f"password={'*' * len(self.credentials[1])}")
 
         username, password = self.credentials
 
         logging.info(F'Logging into {username}\'s account...!')
 
         self.driver.get(f"{STUDENT_LINK_URL}?ModuleName=regsched.pl")
+        logging.debug(f"Login page loaded at url={self.driver.current_url}.")
         self.driver.find_element(By.ID, 'j_username').send_keys(username)
         self.driver.find_element(By.ID, 'j_password').send_keys(password)
         self.driver.find_element(By.CLASS_NAME, 'input-submit').click()
+        logging.debug(f"Password entered, and login button has been clicked.")
 
         bad_user_elems = self.driver.find_elements(By.CLASS_NAME, 'error-box')
         if len(bad_user_elems) > 0:
@@ -156,6 +166,7 @@ class Registrar:
 
         duo_messaged = False
         while 'studentlink' not in self.driver.current_url:
+            logging.debug(f"Now on the page with the title {self.driver.title} at url={self.driver.current_url}")
             if 'duosecurity' in self.driver.current_url:
                 if not duo_messaged:
                     logging.info('Waiting for you to approve this login on Duo...')
@@ -169,6 +180,7 @@ class Registrar:
 
         logging.info(F'Successfully logged into {username}\'s account!')
         self.is_logged_in.set_flag(True)
+        logging.debug(f"Login flag is now set to: {self.is_logged_in}")
         return Status.SUCCESS
 
     """
@@ -208,8 +220,15 @@ class Registrar:
 
             start = time.time()
 
-            # calculate the time to sleep in advance in case amount of courses change
-            min_wait_time = (len(self.target_courses) / MAX_REQUESTS_PER_SECOND) * 60  # min to wait based on MAX_REQS
+            # calculate the time to sleep
+            # we do it here in advance in case amount of courses change
+            # picks whatever rate is needed to make sure we neither exceed
+            # the total rate nor the course rate
+            actual_rate = min(
+                len(self.target_courses) * self.max_requests_per_second_per_course,
+                self.max_requests_per_second_total
+            )
+            min_wait_time = (len(self.target_courses) / actual_rate) * 60  # min wait time we must reach this cycle
 
             # Check login status
             if self.__check_if_logged_out() == Status.ERROR:
@@ -228,7 +247,7 @@ class Registrar:
                 submitted_request = self.thread_pool.submit(self.__is_course_available, course)
                 futures += [submitted_request]
                 courses_and_results += [(course, submitted_request)]
-                time.sleep(0.4)  # a small delay to prevent way too many requests together
+                time.sleep(0.3)  # a small delay to prevent way too many requests together
                 # ^ todo, maybe make this a dynamic val?
             # wait for the threads to finish
             concurrent.futures.wait(futures)
@@ -300,9 +319,10 @@ class Registrar:
             cycle_durations = cycle_durations[-25:]
 
             logging.info(f'Current Cycle Duration: {round(execution_time, 3)} seconds')
-            logging.info(f'Average Cycle Duration (c={len(cycle_durations)}): '
+            logging.debug(f'Average Cycle Duration (c={len(cycle_durations)}): '
                          f'{round(statistics.mean(cycle_durations), 3)} seconds')
             logging.info(f'Current Sleep Time: {round(max(time_to_wait, 0), 3)} seconds')
+            logging.info(f'Request Rate:')
             logging.info('----------------------------------')
 
         # we are done!
