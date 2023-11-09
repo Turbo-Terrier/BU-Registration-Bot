@@ -73,7 +73,7 @@ def main() -> int:
     if premium:
         logging.info(color_message("THANK YOU for purchasing the premium version of this product. Your license "
                                    "is now active!", LogColors.PINK))
-        logging.info()
+        logging.info("")
     else:
         logging.info(color_message(" You are using a trial version of this product.", LogColors.LIGHT_RED))
         logging.info(color_message("  * Registration for only a single course allowed.", LogColors.BRIGHT_BLUE))
@@ -95,9 +95,10 @@ def main() -> int:
 
     logging.info(color_message("Based on configured options in", LogColors.BRIGHT_GREEN) +
                  color_message(" 'config.yml' ", LogColors.YELLOW) +
-                 color_message("we now begin", LogColors.BRIGHT_GREEN) +
-                 color_message(" PLANNER " if config.is_planner else " REAL ", LogColors.CYAN) +
-                 color_message("registrations for...", LogColors.BRIGHT_GREEN))
+                 color_message("we now begin ", LogColors.BRIGHT_GREEN) +
+                 (color_message("PLANNER", LogColors.BACKGROUND_GREEN) if config.is_planner else color_message("REAL", LogColors.BACKGROUND_RED)) +
+                 color_message(" registrations for...", LogColors.BRIGHT_GREEN))
+
     for course in config.course_list:
         logging.info(color_message("  * ", LogColors.BRIGHT_GREEN) + color_message(f"{course}", LogColors.WHITE))
 
@@ -134,7 +135,10 @@ if __name__ == "__main__":
     status = main()
     exit(status)
 
-# TODO: too many unnecessary logs
+# TODO: if no config exists, pull it from "the source of truth" on aseef.dev
+# TODO: take out already registered courses
+# TODO: if internet goes out, can reconnect with out crashing
+# TODO: too many unnecessary logs **
 # TODO: support for 'registering for ONE of these' **
 # TODO: add support to automatically register as soon as registration starts **
 # TODO: support for switching sections **
