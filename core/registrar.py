@@ -26,7 +26,7 @@ from core.threadsafe.thread_safe_int import ThreadSafeInt
 STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
 REGISTER_SUCCESS_ICON = 'https://www.bu.edu/link/student/images/checkmark.gif'
 REGISTER_FAILED_ICON = 'https://www.bu.edu/link/student/images/xmark.gif'
-RETRY_LIMIT = 5  # Note: retry limit should ideally be at least the number of threads + 1
+RETRY_LIMIT = 7  # Note: retry limit should ideally be at least the number of threads + 1 (5)
 # each semester season has an id
 SEMESTER_ID_DICT = {
     'spring': 4,
@@ -34,6 +34,7 @@ SEMESTER_ID_DICT = {
     'summer2': 2,
     'fall': 3
 }
+
 
 class Registrar:
     driver: webdriver
@@ -46,13 +47,14 @@ class Registrar:
     credentials: Tuple[str, str]
     should_ignore_non_existent_courses: bool
     is_premium: bool
+    is_never_give_up: bool
     max_requests_per_second_total: int
     max_requests_per_second_per_course: int
 
-    thread_pool: concurrent.futures.ThreadPoolExecutor = concurrent.futures.\
+    thread_pool: concurrent.futures.ThreadPoolExecutor = concurrent.futures. \
         ThreadPoolExecutor(max_workers=min(4, os.cpu_count() // 2))
     # for tracking errors, if too many successive errors happen for the same
-    # course, we stop trying that course -- TODO: defaultdicts supposedly a threadsafe on cpython, re-eval later
+    # course, we stop trying that course -- defaultdicts are mostly threadsafe on cpython
     course_consecutive_error_counter: Dict[BUCourse, int] = defaultdict(lambda: 0)
     # total error counter, if too many successive errors happen, we exit
     all_consecutive_error_counter: ThreadSafeInt = ThreadSafeInt(0)
@@ -84,8 +86,9 @@ class Registrar:
         self.credentials = credentials
         self.should_ignore_non_existent_courses = config.should_ignore_non_existent_courses
         self.is_premium = is_premium
-        self.max_requests_per_second_total = 90 if is_premium else 5
-        self.max_requests_per_second_per_course = 5 if is_premium else 30
+        self.is_never_give_up = config.is_never_give_up
+        self.max_requests_per_second_total = 99 if is_premium else 6
+        self.max_requests_per_second_per_course = 30 if is_premium else 6
 
     def graceful_exit(self):
 
@@ -110,7 +113,6 @@ class Registrar:
                 if text == 'Duo Push timed out':
                     # start over
                     logging.warning('Oops, Duo Pushed timed out!')
-                    self.graceful_exit()
                     return Status.FAILURE
             # trust browser so we can log back in without duo when BU times us out
             dont_trust_elements = self.driver.find_elements(By.ID, 'trust-browser-button')
@@ -215,8 +217,20 @@ class Registrar:
         search_start = time.time()
         original: Set[BUCourse] = self.target_courses.copy()
         cycle_durations = []
+        sleep_durations = []
 
         while len(self.target_courses) != 0:  # keep trying until all courses are registered
+
+            if self.all_consecutive_error_counter.get() > RETRY_LIMIT:
+                logging.critical('Number of successive failures has reached its threshold. We can no longer continue.')
+                if self.is_never_give_up:
+                    # first time wait 2 sec, then 4 sec, then 8 sec, then 16, 32, 64, 128, 256, 512, 600 seconds
+                    # the wait times are capped at 600 seconds (10 min)
+                    error_sleep_penalty = 2 ** (self.all_consecutive_error_counter.get() / RETRY_LIMIT)
+                    error_sleep_penalty = min(600, error_sleep_penalty)
+                    time.sleep(error_sleep_penalty)
+                else:
+                    return Status.ERROR
 
             start = time.time()
 
@@ -233,7 +247,6 @@ class Registrar:
             # Check login status
             if self.__check_if_logged_out() == Status.ERROR:
                 logging.critical('Re-login failed...! We cannot continue.')
-                self.graceful_exit()
                 return Status.ERROR
 
             # find registrable courses
@@ -255,7 +268,6 @@ class Registrar:
             # Check login status
             if self.__check_if_logged_out() == Status.ERROR:
                 logging.critical('Re-login failed...! We cannot continue.')
-                self.graceful_exit()
                 return Status.ERROR
 
             # get the list of courses that we can potentially register for
@@ -287,18 +299,13 @@ class Registrar:
                     continue  # NEVER SURRENDER!!
                 else:
                     logging.critical('Irrecoverable error occurred. Exiting...')
-                    self.graceful_exit()
                     return Status.ERROR
-
-            if self.all_consecutive_error_counter.get() > RETRY_LIMIT:
-                logging.critical('Number of successive failures has reached its threshold. We can no longer continue.')
-                self.graceful_exit()
-                return Status.ERROR
 
             # print the State of the Union
             logging.info('----------------------------------')
             duration = (time.time() - search_start)
             logging.info(f'Running Time: {round(duration / 60 / 60, 2)} hours.')
+            logging.info(f'Registration Mode: {"PLANNER" if self.is_planner else "REAL"}')
             logging.info(
                 f'Course Status: {(len(original) - len(self.target_courses))}/{len(original)} courses registered')
             # print unregistered courses
@@ -316,28 +323,26 @@ class Registrar:
                 time.sleep(time_to_wait)
 
             cycle_durations += [execution_time]
+            sleep_durations += [time_to_wait]
             cycle_durations = cycle_durations[-25:]
+            sleep_durations = sleep_durations[-25:]
 
-            logging.info(f'Current Cycle Duration: {round(execution_time, 3)} seconds')
+            logging.debug(f'Current Cycle Duration: {round(execution_time, 3)} seconds')
             logging.debug(f'Average Cycle Duration (c={len(cycle_durations)}): '
-                         f'{round(statistics.mean(cycle_durations), 3)} seconds')
-            logging.info(f'Current Sleep Time: {round(max(time_to_wait, 0), 3)} seconds')
-            logging.info(f'Request Rate:')
+                          f'{round(statistics.mean(cycle_durations), 3)} seconds')
+            logging.debug(f'Current Sleep Time [25]: {round(max(time_to_wait, 0), 3)} seconds')
+            logging.debug(f'Average Sleep Time [25]: {round(statistics.mean(sleep_durations), 3)} seconds')
+            logging.info(
+                f'Request Rate: {60 * len(self.target_courses) / round(time_to_wait + execution_time, 4)} req/min')
             logging.info('----------------------------------')
 
         # we are done!
-        self.graceful_exit()
         return Status.SUCCESS
 
     def __register_course(self, course: BUCourse) -> Status.SUCCESS:
 
         assert threading.current_thread().__class__.__name__ == '_MainThread', "Error! Attempted course registration " \
                                                                                "login from a non-main thread."
-
-        if self.course_consecutive_error_counter[course] > RETRY_LIMIT:
-            logging.warning(f"Skipped course registration attempt for {course} due to too many failures."
-                            f"Check logs for more info.")
-            return Status.FAILURE
 
         params_browse = self.__get_parameters(course)
         url_with_params = f"{STUDENT_LINK_URL}?{'&'.join([f'{key}={value}' for key, value in params_browse.items()])}"
@@ -448,11 +453,15 @@ class Registrar:
 
         params_browse = self.__get_parameters(course)
         headers = self.__get_headers()
-        res = requests.get(STUDENT_LINK_URL, params=params_browse, headers=headers)
-        parser = BeautifulSoup(res.text, 'html.parser')
+        page_title = ''
+        res = None
 
-        page_title = parser.find('title').text
         try:
+            res = requests.get(STUDENT_LINK_URL, params=params_browse, headers=headers)
+
+            parser = BeautifulSoup(res.text, 'html.parser')
+            page_title = parser.find('title').text
+
             assert page_title == 'Add Classes - Display', f"Incorrect page. Expected to be on the page \'Add " \
                                                           f"Classes - Display\' but instead ended up on " \
                                                           f"the page \'{page_title}\'."
@@ -486,7 +495,7 @@ class Registrar:
                                         f"based on the bot configurations.")
                         return Status.FAILURE
 
-        except (AttributeError, AssertionError):
+        except (Exception) as e:
 
             if self.driver.title == "Boston University | Login" or \
                     page_title == 'Web Login Service - Message Security Error':
@@ -497,9 +506,15 @@ class Registrar:
                 return Status.FAILURE
             else:
                 logging.error(traceback.format_exc())
-                logging.error(res.text)
-
-                logging.error('Unexpected page. Something went wrong. Read above dump for more info.')
+                if res is not None:
+                    logging.error(res.text)
+                if isinstance(e, ConnectionError):
+                    logging.error('Connection error. Unable to connect to the student link. Did the internet go out?')
+                elif isinstance(e, AttributeError) or isinstance(e, AssertionError):
+                    logging.error('Something went wrong and we were routed to an expected page. Read above dump for '
+                                  'more info.')
+                else:
+                    logging.error('An unknown error occurred. Read above dump for more info.')
                 time.sleep(2)  # Sleep for a couple second as to delay the next request a bit
 
                 return Status.ERROR

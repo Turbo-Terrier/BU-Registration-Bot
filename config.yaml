@@ -6,7 +6,7 @@ license-key: ''
 #  user@bu.edu email.
 # (Note: due to security reasons, you cannot save your password
 # into this config and must enter it every time manually!)
-kerberos-user: 'aseef'
+kerberos-user: 'example'
 
 # Whether to enable REAL registrations. When this is set to
 # 'True', courses will only be added to the planner. It is
@@ -33,15 +33,24 @@ target-semester: 'Spring 2024'
 # Format: [School] [Department] [Course Number] [Section]
 # Example: CAS CS 111 A1
 course-list:
-  - CAS CS 585 A1
-  - CAS CS 460 A1
-  - CAS CS 460 A2
+  - CAS CS 111 A1
+  - CAS CS 131 A1
+  - CAS CS 131 A3
 
 # If you are trying to register for a course that does not exist,
 # should the bot complain (maybe you made a mistake?? If not set this to True.
 # Otherwise, leave it to False. One application of this might be that
 # if you know for a fact that a course will be added in the future.
 ignore-non-existent-courses: False
+
+# Generally, if we run into to many successive errors, the program will
+# exit. This option prevents that from happening. Instead, if we run into
+# to many errors, the program will sleep for a bit, and keep retrying
+# several seconds later. This may be useful, if for whatever reason you
+# keep loosing internet. In that case, the program will keep retrying
+# the connection forever until the internet comes back (every several
+# minutes).
+never-give-up: True
 
 # You should leave this blank unless the program is unable to
 # automatically detect where chrome drivers are.

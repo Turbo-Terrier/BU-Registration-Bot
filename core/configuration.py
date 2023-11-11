@@ -17,6 +17,7 @@ class Configurations:
     license_key: str
     is_debug_mode: bool
     is_console_colored: bool
+    is_never_give_up: bool
 
     def __init__(self, config_path):
         with open(config_path, 'r') as config:
@@ -30,6 +31,7 @@ class Configurations:
         self.license_key = self.__load_license_key()
         self.is_debug_mode = self.__load_is_debug_mode()
         self.is_console_colored = self.__load_is_console_colored()
+        self.is_never_give_up = self.__load_is_never_give_up()
 
     def __load_planner(self) -> bool:
         planner_mode: bool = self.config['planner-mode']
@@ -115,3 +117,9 @@ class Configurations:
                               F"quotes). However, got, \"{is_console_colored}\", which cannot be resolved to a boolean.")
         return is_console_colored
 
+    def __load_is_never_give_up(self) -> bool:
+        never_give_up: bool = self.config['never-give-up']
+        if not isinstance(never_give_up, bool):
+            raise SyntaxError(F"Error! The \"never-give-up\" option must be a boolean (a True or False value with no "
+                              F"quotes). However, got, \"{never_give_up}\", which cannot be resolved to a boolean.")
+        return never_give_up

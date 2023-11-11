@@ -113,20 +113,24 @@ def main() -> int:
         logging.debug(f"Now attempting to login for user {username} with credentials {'*' * len(creds[1])}...")
         if registrar.login() != Status.SUCCESS:
             logging.critical('Login failed! Invalid credentials?')
+            registrar.graceful_exit()
             return 1
         registrar.navigate()
         if registrar.find_courses() == Status.SUCCESS:
             logging.info('Successfully registered for all courses :)')
+            registrar.graceful_exit()
             return 0
         else:
             logging.warning(f'Unable to register for {len(config.course_list)} courses ;(')
+            registrar.graceful_exit()
             return 1
     except KeyboardInterrupt as e:
         logging.warning('Program interrupted. Cleaning up and exiting...')
+        registrar.graceful_exit()
+        return 1
     except Exception:
         logging.error(traceback.format_exc())
         logging.error('Ran into an uncaught error while executing this program. See above stack for more info.')
-    finally:
         registrar.graceful_exit()
         return 1
 
@@ -135,7 +139,9 @@ if __name__ == "__main__":
     status = main()
     exit(status)
 
-# TODO: if no config exists, pull it from "the source of truth" on aseef.dev
+
+# TODO: more debug levels?
+
 # TODO: take out already registered courses
 # TODO: if internet goes out, can reconnect with out crashing
 # TODO: too many unnecessary logs **
@@ -143,6 +149,8 @@ if __name__ == "__main__":
 # TODO: add support to automatically register as soon as registration starts **
 # TODO: support for switching sections **
 # TODO: smtp and/or phone message support
+# TODO: Setup auto building for multiple OS
+# TODO: if no config exists, pull it from "the source of truth" on aseef.dev
 # TODO: finish licensing
 # TODO: update checker
 
