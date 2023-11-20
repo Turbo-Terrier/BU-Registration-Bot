@@ -132,6 +132,7 @@ def main() -> int:
         logging.error(traceback.format_exc())
         logging.error('Ran into an uncaught error while executing this program. See above stack for more info.')
         registrar.graceful_exit()
+        # TODO: smtp email here to inform about the crash
         return 1
 
 

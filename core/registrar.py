@@ -26,7 +26,8 @@ from core.threadsafe.thread_safe_int import ThreadSafeInt
 STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
 REGISTER_SUCCESS_ICON = 'https://www.bu.edu/link/student/images/checkmark.gif'
 REGISTER_FAILED_ICON = 'https://www.bu.edu/link/student/images/xmark.gif'
-RETRY_LIMIT = 7  # Note: retry limit should ideally be at least the number of threads + 1 (5)
+TOTAL_RETRY_LIMIT = 9  # Note: retry limit should ideally be at least the number of threads + 1 (5)
+PER_COURSE_RETRY_LIMIT = 4
 # each semester season has an id
 SEMESTER_ID_DICT = {
     'spring': 4,
@@ -221,15 +222,19 @@ class Registrar:
 
         while len(self.target_courses) != 0:  # keep trying until all courses are registered
 
-            if self.all_consecutive_error_counter.get() > RETRY_LIMIT:
-                logging.critical('Number of successive failures has reached its threshold. We can no longer continue.')
+            if self.all_consecutive_error_counter.get() > TOTAL_RETRY_LIMIT:
                 if self.is_never_give_up:
                     # first time wait 2 sec, then 4 sec, then 8 sec, then 16, 32, 64, 128, 256, 512, 600 seconds
                     # the wait times are capped at 600 seconds (10 min)
-                    error_sleep_penalty = 2 ** (self.all_consecutive_error_counter.get() / RETRY_LIMIT)
+                    error_sleep_penalty = 2 ** (self.all_consecutive_error_counter.get() / TOTAL_RETRY_LIMIT)
                     error_sleep_penalty = min(600, error_sleep_penalty)
+                    logging.warning(f'Number of successive failures has reached a critical threshold. '
+                                    f'Going to sleep for {error_sleep_penalty} seconds.')
                     time.sleep(error_sleep_penalty)
+                    logging.info(f'System is now awake again and reattempting request.')
                 else:
+                    logging.critical(
+                        'Number of successive failures has reached its threshold. We can no longer continue.')
                     return Status.ERROR
 
             start = time.time()
@@ -253,7 +258,7 @@ class Registrar:
             futures: List[Future[Status]] = []
             courses_and_results: List[Tuple[BUCourse, Future[Status]]] = []
             for course in self.target_courses:
-                if self.course_consecutive_error_counter[course] > RETRY_LIMIT:
+                if self.course_consecutive_error_counter[course] > PER_COURSE_RETRY_LIMIT:
                     logging.warning(f'Skipping course lookup for {course} due to too many successive failures in '
                                     f'finding/parsing that course.')
                     continue
@@ -277,14 +282,11 @@ class Registrar:
                 course_status = future_result.result()
                 if course_status == Status.SUCCESS:
                     registrable_courses += [bu_course]
-                    self.course_consecutive_error_counter[bu_course] = 0
-                    self.all_consecutive_error_counter.set(0)
+                    self.__reset_error_counter(bu_course)
                 elif course_status == Status.FAILURE:
-                    self.course_consecutive_error_counter[bu_course] = 0
-                    self.all_consecutive_error_counter.set(0)
+                    self.__reset_error_counter(bu_course)
                 elif course_status == Status.ERROR:
-                    self.course_consecutive_error_counter[bu_course] += 1
-                    self.all_consecutive_error_counter.increment()
+                    self.__increment_error_counter(bu_course)
 
             logging.info(f"Found {'no' if len(registrable_courses) == 0 else len(registrable_courses)} "
                          f"registrable course(s){'.' if len(registrable_courses) == 0 else '!'}")
@@ -411,8 +413,7 @@ class Registrar:
                             f"Can not register yet for {course} because registration is blocked (full class?)")
 
                     # reset error counters
-                    self.all_consecutive_error_counter.set(0)
-                    self.course_consecutive_error_counter[course] = 0
+                    self.__reset_error_counter(course)
 
             if not found:
                 logging.error(f'Error, {course} does not exist! Have you entered the correct course?')
@@ -429,13 +430,11 @@ class Registrar:
                     return Status.ERROR
                 else:
                     # increment fail counters and try again next time
-                    self.all_consecutive_error_counter.increment()
-                    self.course_consecutive_error_counter[course] += 1
+                    self.__increment_error_counter(course)
                     return Status.FAILURE
             else:
                 # if something else happened, increment the error counter and try again
-                self.all_consecutive_error_counter.increment()
-                self.course_consecutive_error_counter[course] += 1
+                self.__increment_error_counter(course)
 
                 logging.error(traceback.format_exc())
                 logging.error(self.driver.page_source)
@@ -481,6 +480,8 @@ class Registrar:
                 course_name_str = course_name_tag.text.replace('\xa0', ' ')
 
                 if course_name_str == str(course):
+                    # TODO: add a debug message displaying the reason class is closed
+                    #  and the number of seats
                     if course_id_tag.select_one(selector="input[name='SelectIt']"):
                         return Status.SUCCESS
                     else:
@@ -529,6 +530,26 @@ class Registrar:
                 return Status.FAILURE
         else:
             return Status.SUCCESS
+
+    def __reset_error_counter(self, bu_course: BUCourse):
+        # TODO: improve with bettering logging
+
+        if self.all_consecutive_error_counter.get() > 0:
+            logging.debug(f'Global error counter reset from {self.all_consecutive_error_counter.get()}!')
+            self.all_consecutive_error_counter.set(0)
+
+        if self.course_consecutive_error_counter[bu_course] != 0:
+            logging.debug(f'Course error counter reset from '
+                         f'{self.course_consecutive_error_counter[bu_course]} for course {bu_course}!')
+            self.course_consecutive_error_counter[bu_course] = 0
+
+    def __increment_error_counter(self, bu_course: BUCourse):
+        self.course_consecutive_error_counter[bu_course] += 1
+        self.all_consecutive_error_counter.increment(1)
+        logging.debug(f'Course error counter incremented to '
+                     f'{self.course_consecutive_error_counter[bu_course]}/{PER_COURSE_RETRY_LIMIT}')
+        logging.debug(f'Global error counter incremented to '
+                     f'{self.all_consecutive_error_counter.get()}/{TOTAL_RETRY_LIMIT}')
 
     def __get_parameters(self, bu_course: BUCourse):
         college, dept, course_code, section = \

@@ -38,9 +38,10 @@ course-list:
   - CAS CS 131 A3
 
 # If you are trying to register for a course that does not exist,
-# should the bot complain (maybe you made a mistake?? If not set this to True.
+# should the bot complain (maybe you made a mistake)?? If not set this to True.
 # Otherwise, leave it to False. One application of this might be that
-# if you know for a fact that a course will be added in the future.
+# if you know for a fact that a course will be added in the future
+# and you want to give yourself a head start on the registrations :).
 ignore-non-existent-courses: False
 
 # Generally, if we run into to many successive errors, the program will
@@ -52,14 +53,14 @@ ignore-non-existent-courses: False
 # minutes).
 never-give-up: True
 
-# You should leave this blank unless the program is unable to
-# automatically detect where chrome drivers are.
-driver-path: ''
-
 # Whether to enable console colors. Some consoles don't support colors very
 # well, and in such case, you may want to disable console colors. Or maybe
 # you are just a dull person, and just don't like colors :(.
 console-colors: True
+
+# You should leave this blank unless the program is unable to
+# automatically detect where chrome drivers are.
+driver-path: ''
 
 # This option enables debug messages. Its primary use is to pin down bugs by
 # printing extra log messages with as much information as possible. Only set
