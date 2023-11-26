@@ -11,7 +11,7 @@ class CustomFormatter(logging.Formatter):
 
     def color_formatter(self, record):
         level = record.levelname
-        if level == 'CRITICAL':
+        if level == 'CRITICAL':  # TODO: doesnt work?
             return f'{LogColors.GRAY.value}[%(asctime)s] {LogColors.BOLD_RED.value}[%(levelname)s] ' \
                    f'{LogColors.BACKGROUND_RED.value}%(message)s{LogColors.RESET.value}'
         elif level == 'ERROR':

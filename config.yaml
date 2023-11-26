@@ -6,7 +6,7 @@ license-key: ''
 #  user@bu.edu email.
 # (Note: due to security reasons, you cannot save your password
 # into this config and must enter it every time manually!)
-kerberos-user: 'example'
+kerberos-user: 'aseef'
 
 # Whether to enable REAL registrations. When this is set to
 # 'True', courses will only be added to the planner. It is
@@ -16,7 +16,7 @@ kerberos-user: 'example'
 # Accepted values are:
 # - True
 # - False
-planner-mode: False
+planner-mode: True
 
 # The semester you are trying to register for.
 # Format: [Semester Season] [Year]
@@ -61,6 +61,9 @@ console-colors: True
 # You should leave this blank unless the program is unable to
 # automatically detect where chrome drivers are.
 driver-path: ''
+
+# Should we save duo cookies to avoid having to approve logins via Duo every time?
+save-duo-cookies: True
 
 # This option enables debug messages. Its primary use is to pin down bugs by
 # printing extra log messages with as much information as possible. Only set

@@ -17,24 +17,18 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 
 from core import util
-from core.bu_course import BUCourse
-from core.configuration import Configurations
-from core.status import Status
+from core.wrappers.bu_course import BUCourse
+from core.wrappers.profile_config import ProfileConfig
+from core.wrappers.status import Status
 from core.threadsafe.thread_safe_bool import ThreadSafeBoolean
 from core.threadsafe.thread_safe_int import ThreadSafeInt
+from core.wrappers.course_season import CourseSeason
 
 STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
 REGISTER_SUCCESS_ICON = 'https://www.bu.edu/link/student/images/checkmark.gif'
 REGISTER_FAILED_ICON = 'https://www.bu.edu/link/student/images/xmark.gif'
 TOTAL_RETRY_LIMIT = 9  # Note: retry limit should ideally be at least the number of threads + 1 (5)
 PER_COURSE_RETRY_LIMIT = 4
-# each semester season has an id
-SEMESTER_ID_DICT = {
-    'spring': 4,
-    'summer1': 1,
-    'summer2': 2,
-    'fall': 3
-}
 
 
 class Registrar:
@@ -46,9 +40,8 @@ class Registrar:
     year: int
     semester_key: str
     credentials: Tuple[str, str]
-    should_ignore_non_existent_courses: bool
+    config: ProfileConfig
     is_premium: bool
-    is_never_give_up: bool
     max_requests_per_second_total: int
     max_requests_per_second_per_course: int
 
@@ -62,7 +55,7 @@ class Registrar:
     # tracker keeping track of whether we are logged in
     is_logged_in: ThreadSafeBoolean = ThreadSafeBoolean(False)
 
-    def __init__(self, credentials: Tuple[str, str], config: Configurations, is_premium: bool):
+    def __init__(self, credentials: Tuple[str, str], config: ProfileConfig, is_premium: bool):
         """
         :param credentials: the tuple containing a string username and a string password to BU Kerberos
         :param config: the program config
@@ -77,19 +70,21 @@ class Registrar:
         self.driver = webdriver.Chrome(options=options, service=service)
         self.driver.set_page_load_timeout(30)
         logging.debug(f"Browser initialized!")
+        # first try to load duo cookies
+        util.load_cookies(self.driver, 'cookies.txt')
 
+        #TODO
         self.is_planner = config.is_planner
         self.module = 'reg/plan/add_planner.pl' if self.is_planner else 'reg/add/confirm_classes.pl'
         self.target_courses = config.course_list
         self.season = config.target_semester[0].capitalize()
         self.year = config.target_semester[1]
-        self.semester_key = str(self.year) + str(SEMESTER_ID_DICT[self.season.lower()])
+        self.semester_key = str(self.year) + str(CourseSeason.from_str(self.season).value)
         self.credentials = credentials
-        self.should_ignore_non_existent_courses = config.should_ignore_non_existent_courses
         self.is_premium = is_premium
-        self.is_never_give_up = config.is_never_give_up
         self.max_requests_per_second_total = 99 if is_premium else 6
         self.max_requests_per_second_per_course = 30 if is_premium else 6
+        self.config = config
 
     def graceful_exit(self):
 
@@ -119,6 +114,7 @@ class Registrar:
             dont_trust_elements = self.driver.find_elements(By.ID, 'trust-browser-button')
             if len(dont_trust_elements) > 0:
                 dont_trust_elements[0].click()
+
         except NoSuchElementException:
             logging.critical('Unexpected page. Something went wrong. Dumping page...')
             logging.critical(self.driver.page_source)
@@ -152,8 +148,12 @@ class Registrar:
 
         username, password = self.credentials
 
-        logging.info(F'Logging into {username}\'s account...!')
 
+        if 'studentlink' not in self.driver.current_url:
+            logging.info(F'Skipping login because we are already logged in.')
+            return Status.SUCCESS
+
+        logging.info(F'Logging into {username}\'s account...!')
         self.driver.get(f"{STUDENT_LINK_URL}?ModuleName=regsched.pl")
         logging.debug(f"Login page loaded at url={self.driver.current_url}.")
         self.driver.find_element(By.ID, 'j_username').send_keys(username)
@@ -184,6 +184,9 @@ class Registrar:
         logging.info(F'Successfully logged into {username}\'s account!')
         self.is_logged_in.set_flag(True)
         logging.debug(f"Login flag is now set to: {self.is_logged_in}")
+
+        util.save_cookies(self.driver, 'cookies.txt')
+
         return Status.SUCCESS
 
     """
@@ -223,7 +226,7 @@ class Registrar:
         while len(self.target_courses) != 0:  # keep trying until all courses are registered
 
             if self.all_consecutive_error_counter.get() > TOTAL_RETRY_LIMIT:
-                if self.is_never_give_up:
+                if self.config.is_never_give_up:
                     # first time wait 2 sec, then 4 sec, then 8 sec, then 16, 32, 64, 128, 256, 512, 600 seconds
                     # the wait times are capped at 600 seconds (10 min)
                     error_sleep_penalty = 2 ** (self.all_consecutive_error_counter.get() / TOTAL_RETRY_LIMIT)
@@ -487,7 +490,7 @@ class Registrar:
                     else:
                         return Status.FAILURE
                 else:
-                    if not self.should_ignore_non_existent_courses:
+                    if not self.config.should_ignore_non_existent_courses:
                         logging.error(
                             f"Error! Unable to find the course \'{course}\'. Are you sure this course exists?")
                         return Status.ERROR

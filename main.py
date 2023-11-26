@@ -1,12 +1,11 @@
 import logging
+import sys
 import traceback
 from getpass import getpass
-from selenium import webdriver
-from selenium.common import SessionNotCreatedException, NoSuchDriverException
-from selenium.webdriver.chrome.service import Service
 
 from core import util
-from core.configuration import Configurations
+from core.database import BotDatabase
+from core.profile_manager import ProfileManager
 from core.registrar import Registrar, Status
 from core.util import LogColors
 from core.util import color_message
@@ -14,46 +13,33 @@ from core.util import color_message
 
 def main() -> int:
     # setup logger
-    util.register_logger(False, False)
+    util.register_logger(False, sys.stdout.isatty())
 
-    # load config
-    try:
-        config = Configurations('./config.yaml')
-    except SyntaxError as e:
-        logging.critical(e)
+    # make sure chrome is installed before doing anything else
+    if util.test_drivers() == Status.ERROR:
         return 1
 
-    if config.is_debug_mode:
-        util.register_logger(True, config.is_console_colored)
-        logging.debug("Debug mode has been enabled.")
+    # load DB
+    logging.info("Loading database...")
+    BotDatabase.init('./bot_data.db')
+
+    # load profile
+    ProfileManager.init()
+    if len(ProfileManager.get_available_profiles()) == 0:
+        logging.info("First startup detected. Initializing program settings.")
+        # create new profile
+        profile_config = ProfileManager.init_profile_creation_console()
+        profile_config = ProfileManager.add_profile(profile_config)
+        # TODO: add something to edit the profile
     else:
-        util.register_logger(False, config.is_console_colored)
+        profile_config = ProfileManager.get_profile(0)
+        ProfileManager.set_current_profile(0)
 
-    logging.debug("Testing browser drivers by booting up a dummy browser...")
-    service = Service() if config.driver_path == '' else Service(executable_path=config.driver_path)
-    logging.debug(f"Initializing dummy browser service with service_url={service.service_url} path={service.path}...")
-    try:
-        dummy_driver = webdriver.Chrome(options=util.get_chrome_options(), service=service)
-        logging.debug("Successfully loaded chrome drivers! Exiting dummy browser.")
-        dummy_driver.close()
-        dummy_driver.quit()
-    except OSError:
-        logging.critical(traceback.format_exc())
-        logging.critical(f"Unable to launch chrome drivers due to an OS Error. Do you have the correct drivers? "
-                         f"Read above stack dump for more info.")
-        exit(1)
-    except NoSuchDriverException:
-        logging.critical("It seems you already have Google Chrome installed, however, we were unable to automatically "
-                         "detect the path location for the browser drivers needed to launch this application. Try "
-                         "manually downloading the chrome drivers from the web and specify the path to "
-                         "your browser drivers using the 'driver-path' option in config.yaml. Make sure to download "
-                         "the correct drivers for your hardware and operating system.")
-        exit(1)
-    except SessionNotCreatedException:
-        logging.critical("Error! Browser test failed. You must have Google Chrome installed to use this application.")
-        exit(1)
+    # load course list
+    # TODO
 
-    logging.debug("Initializing the actual application...")
+    if profile_config.is_debug_mode:
+        logging.debug("Debug mode has been enabled.")
 
     logging.info(color_message("##############################################", LogColors.CYAN))
     logging.info(color_message("##", LogColors.CYAN) +
@@ -64,7 +50,7 @@ def main() -> int:
                  color_message("##", LogColors.CYAN))
     logging.info(color_message("##                                          ##", LogColors.CYAN))
     logging.info(color_message("##", LogColors.CYAN) +
-                 color_message("           Version  0.1.0-BETA            ", LogColors.GRAY) +
+                 color_message("           Version  0.2.0-BETA            ", LogColors.GRAY) +
                  color_message("##", LogColors.CYAN))
     logging.info(color_message("##############################################", LogColors.CYAN))
     logging.info("")
@@ -96,7 +82,7 @@ def main() -> int:
     logging.info(color_message("Based on configured options in", LogColors.BRIGHT_GREEN) +
                  color_message(" 'config.yml' ", LogColors.YELLOW) +
                  color_message("we now begin ", LogColors.BRIGHT_GREEN) +
-                 (color_message("PLANNER", LogColors.BACKGROUND_GREEN) if config.is_planner else color_message("REAL", LogColors.BACKGROUND_RED)) +
+                 (color_message("PLANNER", LogColors.BACKGROUND_GREEN) if profile_config.is_planner else color_message("REAL", LogColors.BACKGROUND_RED)) +
                  color_message(" registrations for...", LogColors.BRIGHT_GREEN))
 
     for course in config.course_list:
@@ -104,10 +90,10 @@ def main() -> int:
 
     input("Press enter to continue...")
 
-    username = config.kerberos_username
+    username = profile_config.kerberos_username
     creds = (username, getpass(f'Password for {username} [won\'t be display on screen]: '))
 
-    registrar = Registrar(creds, config, premium)
+    registrar = Registrar(creds, profile_config, premium)
 
     try:
         logging.debug(f"Now attempting to login for user {username} with credentials {'*' * len(creds[1])}...")
