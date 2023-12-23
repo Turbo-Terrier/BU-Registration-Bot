@@ -2,6 +2,9 @@ import threading
 
 
 class ThreadSafeInt:
+    lock: threading.Lock
+    value: int
+
     def __init__(self, default_value: int):
         self.lock = threading.Lock()
         self.value = default_value

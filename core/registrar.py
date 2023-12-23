@@ -27,7 +27,7 @@ STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
 REGISTER_SUCCESS_ICON = 'https://www.bu.edu/link/student/images/checkmark.gif'
 REGISTER_FAILED_ICON = 'https://www.bu.edu/link/student/images/xmark.gif'
 TOTAL_RETRY_LIMIT = 9  # Note: retry limit should ideally be at least the number of threads + 1 (5)
-PER_COURSE_RETRY_LIMIT = 4
+PER_COURSE_RETRY_LIMIT = 12  # should b
 # each semester season has an id
 SEMESTER_ID_DICT = {
     'spring': 4,
@@ -53,7 +53,7 @@ class Registrar:
     max_requests_per_second_per_course: int
 
     thread_pool: concurrent.futures.ThreadPoolExecutor = concurrent.futures. \
-        ThreadPoolExecutor(max_workers=min(4, os.cpu_count() // 2))
+        ThreadPoolExecutor(max_workers=4)
     # for tracking errors, if too many successive errors happen for the same
     # course, we stop trying that course -- defaultdicts are mostly threadsafe on cpython
     course_consecutive_error_counter: Dict[BUCourse, int] = defaultdict(lambda: 0)
@@ -222,6 +222,7 @@ class Registrar:
 
         while len(self.target_courses) != 0:  # keep trying until all courses are registered
 
+            # if global error threshold reached
             if self.all_consecutive_error_counter.get() > TOTAL_RETRY_LIMIT:
                 if self.is_never_give_up:
                     # first time wait 2 sec, then 4 sec, then 8 sec, then 16, 32, 64, 128, 256, 512, 600 seconds
@@ -236,6 +237,18 @@ class Registrar:
                     logging.critical(
                         'Number of successive failures has reached its threshold. We can no longer continue.')
                     return Status.ERROR
+
+            # if all courses have reached their respective error threshold (shouldnt happen)
+            all_courses_failed = True
+            for course in self.target_courses:
+                if self.course_consecutive_error_counter[course] <= PER_COURSE_RETRY_LIMIT or self.is_never_give_up:
+                    all_courses_failed = False
+                    break
+            if all_courses_failed:
+                logging.critical(
+                    'Number of successive failures has reached its threshold for all courses. We can no longer '
+                    'continue.')
+                return Status.ERROR
 
             start = time.time()
 
@@ -258,7 +271,7 @@ class Registrar:
             futures: List[Future[Status]] = []
             courses_and_results: List[Tuple[BUCourse, Future[Status]]] = []
             for course in self.target_courses:
-                if self.course_consecutive_error_counter[course] > PER_COURSE_RETRY_LIMIT:
+                if self.course_consecutive_error_counter[course] > PER_COURSE_RETRY_LIMIT and not self.is_never_give_up:
                     logging.warning(f'Skipping course lookup for {course} due to too many successive failures in '
                                     f'finding/parsing that course.')
                     continue
