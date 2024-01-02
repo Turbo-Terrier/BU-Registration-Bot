@@ -6,7 +6,7 @@ private_key = ed25519.Ed25519PrivateKey.generate()
 
 # Serialize the private key to a PEM format
 private_pem = private_key.private_bytes(
-    encoding=serialization.Encoding.PEM,
+    encoding=serialization.Encoding.DER,
     format=serialization.PrivateFormat.PKCS8,
     encryption_algorithm=serialization.NoEncryption()
 )
@@ -16,7 +16,7 @@ public_key = private_key.public_key()
 
 # Serialize the public key to a PEM format
 public_pem = public_key.public_bytes(
-    encoding=serialization.Encoding.PEM,
+    encoding=serialization.Encoding.DER,
     format=serialization.PublicFormat.SubjectPublicKeyInfo
 )
 

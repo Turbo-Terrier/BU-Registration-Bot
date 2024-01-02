@@ -7,9 +7,12 @@ from selenium.webdriver.chrome.service import Service
 
 from core import util
 from core.configuration import Configurations
+from core.licensing.cloud_actions import AppCredentials, ApplicationStart, SignedApplicationStartPermission, \
+    ApplicationStartPermission, MembershipLevel
 from core.registrar import Registrar, Status
 from core.util import LogColors
 from core.util import color_message
+import time
 
 
 def main() -> int:
@@ -53,8 +56,27 @@ def main() -> int:
         logging.critical("Error! Browser test failed. You must have Google Chrome installed to use this application.")
         exit(1)
 
-    logging.debug("Initializing the actual application...")
+    logging.debug("Checking license...")
 
+    app_start = ApplicationStart(
+        AppCredentials(kerberos_username=config.kerberos_username, authentication_key=config.license_key),
+        config.course_list, util.get_device_meta(), util.get_new_york_timestamp()
+    ).send_and_get_response()
+
+    start_permission = SignedApplicationStartPermission(
+        app_start['signature'], ApplicationStartPermission.from_json(app_start['data'])
+    )
+
+    if not start_permission.verify_signature():
+        logging.critical("Error! Invalid signature detected. This application may have been tampered with."
+                         "Please contact us for help.")
+        return 1
+    else:
+        logging.debug("Signature verified successfully.")
+
+    membership = start_permission.data.membership_level
+
+    logging.info("")
     logging.info(color_message("##############################################", LogColors.CYAN))
     logging.info(color_message("##", LogColors.CYAN) +
                  color_message("    Welcome to the BU Registration Bot    ", LogColors.YELLOW) +
@@ -69,45 +91,67 @@ def main() -> int:
     logging.info(color_message("##############################################", LogColors.CYAN))
     logging.info("")
 
-    premium = True  # TODO Finish Licensing System
-    if premium:
+    if membership == MembershipLevel.Full:
         logging.info(color_message("THANK YOU for purchasing the premium version of this product. Your license "
                                    "is now active!", LogColors.PINK))
         logging.info("")
-    else:
+    elif membership == MembershipLevel.Demo:
         logging.info(color_message(" You are using a trial version of this product.", LogColors.LIGHT_RED))
         logging.info(color_message("  * Registration for only a single course allowed.", LogColors.BRIGHT_BLUE))
         logging.info(color_message("  * Checks less frequently for open classes.",
                                    LogColors.BRIGHT_BLUE))
         logging.info(color_message("  * Only limited support offered for issues.",
                                    LogColors.BRIGHT_BLUE))
-        logging.info(color_message("Upgrade to the full version of this product for:", LogColors.LIGHT_RED))
         # TODO: do I want to restrict max registrations per semesters to 12?
         #  Maybe not and instead just use my statistics to make sure no one is abusing this tool
+        logging.info(color_message("Upgrade to the full version of this product for:", LogColors.LIGHT_RED))
         logging.info(color_message("  * Unlimited registrations (up to 12 per semester)", LogColors.BRIGHT_BLUE))
         logging.info(color_message("  * Checks for open courses 6x more frequently reducing the chances of missed "
                                    "opportunities...!", LogColors.BRIGHT_BLUE))
         logging.info(color_message("  * Premium Support Offered.", LogColors.BRIGHT_BLUE))
-        logging.info(color_message("If you have already purchased a license, make sure to put the license key into ",
-                                   LogColors.LIGHT_RED) +
-                     color_message("'config.yml'", LogColors.YELLOW) + color_message("!", LogColors.LIGHT_RED))
         logging.info("")
+
+        if len(config.course_list) > 1:
+            logging.error("Error! You are using the demo version of this product which only allows "
+                          "registration for a single course. However, you have specified more than one course "
+                          "to register for. Please either upgrade to the full version or remove all but one "
+                          "course from your list of courses in config.yaml to continue.")
+            return 1
+
+    elif membership == MembershipLevel.Expired:
+        logging.info(color_message("Whoops, it looks like you have used your one free "
+                                   "course registration. This concludes the trial period"
+                                   " of this application", LogColors.LIGHT_GRAY))
+        logging.info("")
+        logging.info(color_message("Upgrade to the full version of this product for:", LogColors.LIGHT_RED))
+        logging.info(color_message("  * Unlimited registrations (up to 12 per semester)", LogColors.BRIGHT_BLUE))
+        logging.info(color_message("  * Checks for open courses 6x more frequently reducing the chances of missed "
+                                   "opportunities...!", LogColors.BRIGHT_BLUE))
+        logging.info(color_message("  * Premium Support Offered.", LogColors.BRIGHT_BLUE))
+        logging.info("")
+        return 1
+    else:
+        logging.error("Error! It looks like your license is invalid. Please re-check your license key and try again "
+                      "or contact us at the above specified email address for support.")
+        return 1
 
     logging.info(color_message("Based on configured options in", LogColors.BRIGHT_GREEN) +
                  color_message(" 'config.yml' ", LogColors.YELLOW) +
                  color_message("we now begin ", LogColors.BRIGHT_GREEN) +
-                 (color_message("PLANNER", LogColors.BACKGROUND_GREEN) if config.is_planner else color_message("REAL", LogColors.BACKGROUND_RED)) +
+                 (color_message("PLANNER", LogColors.BACKGROUND_GREEN) if config.is_planner else color_message("REAL",
+                                                                                                               LogColors.BACKGROUND_RED)) +
                  color_message(" registrations for...", LogColors.BRIGHT_GREEN))
 
     for course in config.course_list:
         logging.info(color_message("  * ", LogColors.BRIGHT_GREEN) + color_message(f"{course}", LogColors.WHITE))
 
+    time.sleep(1)
     input("Press enter to continue...")
 
     username = config.kerberos_username
     creds = (username, getpass(f'Password for {username} [won\'t be display on screen]: '))
 
-    registrar = Registrar(creds, config, premium)
+    registrar = Registrar(creds, config, membership)
 
     try:
         logging.debug(f"Now attempting to login for user {username} with credentials {'*' * len(creds[1])}...")
@@ -139,7 +183,6 @@ def main() -> int:
 if __name__ == "__main__":
     status = main()
     exit(status)
-
 
 # TODO: more debug levels?
 

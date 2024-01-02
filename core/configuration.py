@@ -5,12 +5,13 @@ from typing import Tuple, List, Set
 import yaml
 
 from core.bu_course import BUCourse
+from core.semester import semester_season_from_string, SemesterSeason, Semester
 
 
 class Configurations:
     is_planner: bool
     kerberos_username: str
-    target_semester: Tuple[str, int]
+    target_semester: Semester
     course_list = List[BUCourse]
     driver_path: str
     should_ignore_non_existent_courses: bool
@@ -48,13 +49,15 @@ class Configurations:
         else:
             return username
 
-    def __load_target_semester(self) -> Tuple[str, int]:
+    def __load_target_semester(self) -> Semester:
         target_semester: str = self.config['target-semester']
         semester_pattern = re.compile('(Fall|Summer1|Summer2|Spring) [0-9]{4}', re.RegexFlag.IGNORECASE)
         if semester_pattern.match(target_semester) is None:
             raise SyntaxError(F"Error! \'{target_semester}\' is not a valid semester!")
         splits = target_semester.split(' ')
-        return splits[0].lower(), int(splits[1])
+        season = semester_season_from_string(splits[0].lower())
+        year = int(splits[1])
+        return Semester(season, year)
 
     def __load_course_list(self) -> Set[BUCourse]:
         courses: List[str] = self.config['course-list']
@@ -68,7 +71,7 @@ class Configurations:
                 failures += [F"'{course}' is not in the correct format. Example entry: CAS CS 111 A1"]
             else:
                 split = course.split(' ')
-                bu_courses += [BUCourse(split[0], split[1], split[2], split[3])]
+                bu_courses += [BUCourse(self.target_semester, split[0], split[1], int(split[2]), split[3])]
         if len(failures) > 0:
             raise SyntaxError('Error(s): ' + ', '.join(failures))
 

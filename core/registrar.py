@@ -19,22 +19,18 @@ from selenium.webdriver.common.by import By
 from core import util
 from core.bu_course import BUCourse
 from core.configuration import Configurations
+from core.semester import Semester
 from core.status import Status
 from core.threadsafe.thread_safe_bool import ThreadSafeBoolean
 from core.threadsafe.thread_safe_int import ThreadSafeInt
+from core.licensing.cloud_actions import MembershipLevel
 
 STUDENT_LINK_URL = 'https://www.bu.edu/link/bin/uiscgi_studentlink.pl'
 REGISTER_SUCCESS_ICON = 'https://www.bu.edu/link/student/images/checkmark.gif'
 REGISTER_FAILED_ICON = 'https://www.bu.edu/link/student/images/xmark.gif'
 TOTAL_RETRY_LIMIT = 9  # Note: retry limit should ideally be at least the number of threads + 1 (5)
 PER_COURSE_RETRY_LIMIT = 12  # should b
-# each semester season has an id
-SEMESTER_ID_DICT = {
-    'spring': 4,
-    'summer1': 1,
-    'summer2': 2,
-    'fall': 3
-}
+
 
 
 class Registrar:
@@ -42,8 +38,7 @@ class Registrar:
     is_planner: bool
     module: str
     target_courses: Set[BUCourse]
-    season: str
-    year: int
+    semester: Semester
     semester_key: str
     credentials: Tuple[str, str]
     should_ignore_non_existent_courses: bool
@@ -62,7 +57,7 @@ class Registrar:
     # tracker keeping track of whether we are logged in
     is_logged_in: ThreadSafeBoolean = ThreadSafeBoolean(False)
 
-    def __init__(self, credentials: Tuple[str, str], config: Configurations, is_premium: bool):
+    def __init__(self, credentials: Tuple[str, str], config: Configurations, membership_level: MembershipLevel):
         """
         :param credentials: the tuple containing a string username and a string password to BU Kerberos
         :param config: the program config
@@ -81,15 +76,13 @@ class Registrar:
         self.is_planner = config.is_planner
         self.module = 'reg/plan/add_planner.pl' if self.is_planner else 'reg/add/confirm_classes.pl'
         self.target_courses = config.course_list
-        self.season = config.target_semester[0].capitalize()
-        self.year = config.target_semester[1]
-        self.semester_key = str(self.year) + str(SEMESTER_ID_DICT[self.season.lower()])
+        self.semester = config.target_semester
         self.credentials = credentials
         self.should_ignore_non_existent_courses = config.should_ignore_non_existent_courses
-        self.is_premium = is_premium
+        self.is_premium = membership_level == MembershipLevel.Full
         self.is_never_give_up = config.is_never_give_up
-        self.max_requests_per_second_total = 99 if is_premium else 6
-        self.max_requests_per_second_per_course = 30 if is_premium else 6
+        self.max_requests_per_second_total = 99 if self.is_premium else 6
+        self.max_requests_per_second_per_course = 30 if self.is_premium else 6
 
     def graceful_exit(self):
 
@@ -197,7 +190,10 @@ class Registrar:
                                                                                "thread."
 
         self.driver.get(
-            f'{STUDENT_LINK_URL}?ModuleName=reg/option/_start.pl&ViewSem={self.season}%20{self.year}&KeySem={self.semester_key}')
+            f'{STUDENT_LINK_URL}?ModuleName=reg/option/_start.pl'
+            f'&ViewSem={self.semester.semester_season.name}%20{self.semester.semester_year}'
+            f'&KeySem={self.semester.to_semester_key()}'
+        )
         # note: the tbody tag is injected by chrome
         rows = self.driver.find_element(By.TAG_NAME, 'tbody').find_elements(By.XPATH,
                                                                             '//tr[@align="center" and @valign="top"]')
@@ -567,7 +563,7 @@ class Registrar:
     def __get_parameters(self, bu_course: BUCourse):
         college, dept, course_code, section = \
             bu_course.college, \
-                bu_course.dept, \
+                bu_course.department, \
                 bu_course.course_code, \
                 bu_course.section
         return {
@@ -578,7 +574,7 @@ class Registrar:
             'ModuleName': 'reg/add/browse_schedule.pl',
             'AddPreregInd': '',
             'AddPlannerInd': 'Y' if self.is_planner else '',
-            'ViewSem': self.season + ' ' + str(self.year),
+            'ViewSem': self.semester.semester_season.name + ' ' + str(self.semester.semester_year),
             'KeySem': self.semester_key,
             'PreregViewSem': '',
             'SearchOptionCd': 'S',

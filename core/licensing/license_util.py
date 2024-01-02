@@ -10,10 +10,13 @@ def get_public_key():
     global loaded_key
     if loaded_key is not None:
         return loaded_key
-    with open('ed25519_public_key.pem', 'rb') as key_file:
-        loaded_key = serialization.load_pem_public_key(key_file.read())
+    with open('ed25519_public_key.der', 'rb') as key_file:
+        data = key_file.read()
+        loaded_key = serialization.load_der_public_key(data)
     return loaded_key
 
 
 def get_base_url() -> str:
     return 'https://license.aseef.dev/bu-registration-bot'
+
+
