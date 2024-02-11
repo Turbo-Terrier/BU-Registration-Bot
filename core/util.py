@@ -47,6 +47,9 @@ def get_device_meta() -> DeviceMeta:
     system_arch = platform.architecture()
     system_arch = system_arch[0] + ' ' + system_arch[1]
 
+    # Get system device name
+    device_name = platform.node()
+
     # Get CPU speed
     cpu_speed = psutil.cpu_freq().current
 
@@ -54,7 +57,7 @@ def get_device_meta() -> DeviceMeta:
     os_release = platform.release()
     os_info = platform.system() + (' ' + os_release if len(os_release) != 0 else '')
 
-    return DeviceMeta(core_count, cpu_speed, system_arch, os_info)
+    return DeviceMeta(core_count, cpu_speed, device_name, system_arch, os_info)
 
 
 def get_new_york_timestamp():

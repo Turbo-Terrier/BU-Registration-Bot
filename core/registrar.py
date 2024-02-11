@@ -17,8 +17,9 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 
 from core import util
-from core.bu_course import BUCourse
-from core.configuration import Configurations
+from core.bu_course import BUCourseSection
+from core.configuration import UserApplicationSettings
+from core.licensing import cloud_util
 from core.semester import Semester
 from core.status import Status
 from core.threadsafe.thread_safe_bool import ThreadSafeBoolean
@@ -32,55 +33,83 @@ TOTAL_RETRY_LIMIT = 9  # Note: retry limit should ideally be at least the number
 PER_COURSE_RETRY_LIMIT = 12  # should b
 
 
+class RegistrationResult:
+    status: Status
+    unknown_crash_occurred: bool
+    reason: str
+    avg_cycle_time: float
+    std_cycle_time: float
+    avg_sleep_time: float
+    std_sleep_time: float
+
+    def __init__(self, status: Status, unknown_crash_occurred: bool, reason: str, avg_cycle_time: float,
+                 std_cycle_time: float, avg_sleep_time: float, std_sleep_time: float):
+        self.status = status
+        self.unknown_crash_occurred = unknown_crash_occurred
+        self.reason = reason
+        self.avg_cycle_time = avg_cycle_time
+        self.std_cycle_time = std_cycle_time
+        self.avg_sleep_time = avg_sleep_time
+        self.std_sleep_time = std_sleep_time
+
 
 class Registrar:
     driver: webdriver
     is_planner: bool
     module: str
-    target_courses: Set[BUCourse]
-    semester: Semester
-    semester_key: str
-    credentials: Tuple[str, str]
-    should_ignore_non_existent_courses: bool
+    target_courses: List[BUCourseSection]
+    license_key: str
+    bu_credentials: Tuple[str, str]
     is_premium: bool
-    is_never_give_up: bool
     max_requests_per_second_total: int
     max_requests_per_second_per_course: int
+    session_id: int
+    config: UserApplicationSettings
 
     thread_pool: concurrent.futures.ThreadPoolExecutor = concurrent.futures. \
         ThreadPoolExecutor(max_workers=4)
     # for tracking errors, if too many successive errors happen for the same
     # course, we stop trying that course -- defaultdicts are mostly threadsafe on cpython
-    course_consecutive_error_counter: Dict[BUCourse, int] = defaultdict(lambda: 0)
+    course_consecutive_error_counter: Dict[BUCourseSection, int] = defaultdict(lambda: 0)
     # total error counter, if too many successive errors happen, we exit
     all_consecutive_error_counter: ThreadSafeInt = ThreadSafeInt(0)
     # tracker keeping track of whether we are logged in
     is_logged_in: ThreadSafeBoolean = ThreadSafeBoolean(False)
 
-    def __init__(self, credentials: Tuple[str, str], config: Configurations, membership_level: MembershipLevel):
+    def __init__(self, license_key: str,
+                 bu_creds: Tuple[str, str],
+                 config: UserApplicationSettings,
+                 session_id: int,
+                 membership_level: MembershipLevel):
         """
-        :param credentials: the tuple containing a string username and a string password to BU Kerberos
+        :param license_key: a string license key to the app
+        :param bu_creds: the tuple containing a string username and a string password to BU Kerberos
         :param config: the program config
-        :param is_premium: whether this is a licensed user
+        :param session_id: the session id
+        :param membership_level: the membership level
         """
 
-        logging.debug(f"User's CPU count is {os.cpu_count()}. Set max workers to {self.thread_pool._max_workers}.")
+        logging.debug(f"User's CPU count is {os.cpu_count()}.")
 
+        self.session_id = session_id
         options = util.get_chrome_options()
-        service = Service() if config.driver_path == '' else Service(executable_path=config.driver_path)
+        service = Service(
+            executable_path=config.custom_driver.driver_path
+        ) if config.custom_driver.enabled else Service()
         logging.debug(f"Initializing chrome driver with service_url={service.service_url} path={service.path}...")
         self.driver = webdriver.Chrome(options=options, service=service)
         self.driver.set_page_load_timeout(30)
         logging.debug(f"Browser initialized!")
 
-        self.is_planner = config.is_planner
+        self.config = config
+        self.is_planner = not config.real_registrations
         self.module = 'reg/plan/add_planner.pl' if self.is_planner else 'reg/add/confirm_classes.pl'
-        self.target_courses = config.course_list
-        self.semester = config.target_semester
-        self.credentials = credentials
-        self.should_ignore_non_existent_courses = config.should_ignore_non_existent_courses
+        self.target_courses = config.target_courses
+        # sort courses by their semester
+        self.target_courses = sorted(self.target_courses, key=lambda x: x.course.semester.to_semester_key())
+        self.license_key = license_key
+        self.bu_credentials = bu_creds
         self.is_premium = membership_level == MembershipLevel.Full
-        self.is_never_give_up = config.is_never_give_up
         self.max_requests_per_second_total = 99 if self.is_premium else 6
         self.max_requests_per_second_per_course = 30 if self.is_premium else 6
 
@@ -139,11 +168,11 @@ class Registrar:
         assert threading.current_thread().__class__.__name__ == '_MainThread', "Error! Attempted kerberos login " \
                                                                                "from a non-main thread."
         if override_credentials is not None:
-            self.credentials = override_credentials
-            logging.debug(f"Login attempted with new credentials for username={self.credentials[0]} and "
-                          f"password={'*' * len(self.credentials[1])}")
+            self.bu_credentials = override_credentials
+            logging.debug(f"Login attempted with new credentials for username={self.bu_credentials[0]} and "
+                          f"password={'*' * len(self.bu_credentials[1])}")
 
-        username, password = self.credentials
+        username, password = self.bu_credentials
 
         logging.info(F'Logging into {username}\'s account...!')
 
@@ -184,15 +213,15 @@ class Registrar:
     Otherwise it will prevent registration with a misleading error. AHAHA SUCK IT!
     """
 
-    def navigate(self):
+    def navigate(self, semester: Semester):
         assert threading.current_thread().__class__.__name__ == '_MainThread', "Error! Attempted to navigate to the " \
                                                                                "registration page from a non-main " \
                                                                                "thread."
 
         self.driver.get(
             f'{STUDENT_LINK_URL}?ModuleName=reg/option/_start.pl'
-            f'&ViewSem={self.semester.semester_season.name}%20{self.semester.semester_year}'
-            f'&KeySem={self.semester.to_semester_key()}'
+            f'&ViewSem={semester.semester_season.name}%20{semester.semester_year}'
+            f'&KeySem={semester.to_semester_key()}'
         )
         # note: the tbody tag is injected by chrome
         rows = self.driver.find_element(By.TAG_NAME, 'tbody').find_elements(By.XPATH,
@@ -212,7 +241,7 @@ class Registrar:
 
     def find_courses(self) -> Status.SUCCESS:
         search_start = time.time()
-        original: Set[BUCourse] = self.target_courses.copy()
+        original: List[BUCourseSection] = self.target_courses.copy()
         cycle_durations = []
         sleep_durations = []
 
@@ -220,7 +249,7 @@ class Registrar:
 
             # if global error threshold reached
             if self.all_consecutive_error_counter.get() > TOTAL_RETRY_LIMIT:
-                if self.is_never_give_up:
+                if self.config.keep_trying:
                     # first time wait 2 sec, then 4 sec, then 8 sec, then 16, 32, 64, 128, 256, 512, 600 seconds
                     # the wait times are capped at 600 seconds (10 min)
                     error_sleep_penalty = 2 ** (self.all_consecutive_error_counter.get() / TOTAL_RETRY_LIMIT)
@@ -237,7 +266,7 @@ class Registrar:
             # if all courses have reached their respective error threshold (shouldnt happen)
             all_courses_failed = True
             for course in self.target_courses:
-                if self.course_consecutive_error_counter[course] <= PER_COURSE_RETRY_LIMIT or self.is_never_give_up:
+                if self.course_consecutive_error_counter[course] <= PER_COURSE_RETRY_LIMIT or self.config.keep_trying:
                     all_courses_failed = False
                     break
             if all_courses_failed:
@@ -265,9 +294,10 @@ class Registrar:
 
             # find registrable courses
             futures: List[Future[Status]] = []
-            courses_and_results: List[Tuple[BUCourse, Future[Status]]] = []
+            courses_and_results: List[Tuple[BUCourseSection, Future[Status]]] = []
             for course in self.target_courses:
-                if self.course_consecutive_error_counter[course] > PER_COURSE_RETRY_LIMIT and not self.is_never_give_up:
+                if self.course_consecutive_error_counter[course] > PER_COURSE_RETRY_LIMIT \
+                        and not self.config.keep_trying:
                     logging.warning(f'Skipping course lookup for {course} due to too many successive failures in '
                                     f'finding/parsing that course.')
                     continue
@@ -286,7 +316,7 @@ class Registrar:
 
             # get the list of courses that we can potentially register for
             # and set the error counters here as well
-            registrable_courses: List[BUCourse] = []
+            registrable_courses: List[BUCourseSection] = []
             for bu_course, future_result in courses_and_results:
                 course_status = future_result.result()
                 if course_status == Status.SUCCESS:
@@ -306,6 +336,10 @@ class Registrar:
                 result = self.__register_course(registrable_course)
                 if result == Status.SUCCESS:
                     self.target_courses.remove(registrable_course)
+                    cloud_util.send_course_register_update(self.license_key,
+                                                           self.session_id,
+                                                           registrable_course.course.course_id,
+                                                           registrable_course.section.section)
                 elif result == Status.FAILURE:
                     continue  # NEVER SURRENDER!!
                 else:
@@ -324,8 +358,8 @@ class Registrar:
             for u in self.target_courses:
                 logging.info(f"   - {u}")
             # print registered courses
-            logging.info(f"  Registered:" + ('' if len(original - self.target_courses) > 0 else ' None'))
-            for r in original - self.target_courses:
+            logging.info(f"  Registered:" + ('' if len(original) - len(self.target_courses) > 0 else ' None'))
+            for r in set(original) - set(self.target_courses):
                 logging.info(f"   - {r}")
 
             execution_time = time.time() - start
@@ -350,10 +384,18 @@ class Registrar:
         # we are done!
         return Status.SUCCESS
 
-    def __register_course(self, course: BUCourse) -> Status.SUCCESS:
+    def __register_course(self, course: BUCourseSection) -> Status.SUCCESS:
 
         assert threading.current_thread().__class__.__name__ == '_MainThread', "Error! Attempted course registration " \
                                                                                "login from a non-main thread."
+
+        if self.__check_if_logged_out() == Status.ERROR:
+            logging.critical('Re-login failed...! We cannot continue.')
+            return Status.ERROR
+
+        # todo: test
+        if self.__get_url_semester_key(self.driver.current_url) != course.course.semester.to_semester_key():
+            self.navigate(course.course.semester)
 
         params_browse = self.__get_parameters(course)
         url_with_params = f"{STUDENT_LINK_URL}?{'&'.join([f'{key}={value}' for key, value in params_browse.items()])}"
@@ -429,7 +471,7 @@ class Registrar:
 
             return Status.FAILURE
 
-        except (Exception) as e:
+        except Exception as e:
             # if we got logged out log back in
             if self.driver.title == 'Boston University | Login':
                 logging.warning(f'Failed to attempt registration for {course} because we are logged out!')
@@ -452,7 +494,7 @@ class Registrar:
 
                 return Status.FAILURE
 
-    def __is_course_available(self, course: BUCourse) -> Status:
+    def __is_course_available(self, course: BUCourseSection) -> Status:
         # make sure they are on the correct page
         if self.driver.current_url.__contains__(f'{STUDENT_LINK_URL}?ModuleName={self.module}'):
             logging.error(F"Unexpected state. Driver is current on url={self.driver.current_url} "
@@ -496,14 +538,9 @@ class Registrar:
                     else:
                         return Status.FAILURE
                 else:
-                    if not self.should_ignore_non_existent_courses:
-                        logging.error(
-                            f"Error! Unable to find the course \'{course}\'. Are you sure this course exists?")
-                        return Status.ERROR
-                    else:
-                        logging.warning(f"Warning. The course \'{course}\' does not exist (yet?). Ignoring this error "
-                                        f"based on the bot configurations.")
-                        return Status.FAILURE
+                    logging.warning(f"Warning. The course \'{course}\' does not exist (yet?). Ignoring this error "
+                                    f"based on the bot configurations.")
+                    return Status.FAILURE
 
         except (Exception) as e:
 
@@ -529,18 +566,26 @@ class Registrar:
 
                 return Status.ERROR
 
+    def __get_url_semester_key(self, url: str):
+        # extract the "KeySem" query parameter
+        split_1 = url.split('KeySem=')
+        if len(split_1) < 2:
+            return None
+        split_2 = split_1[1].split('&')
+        if len(split_2) < 1:
+            return None
+        return split_2[0]
+
+
     def __check_if_logged_out(self) -> Status:
         if self.driver.title == "Boston University | Login" or not self.is_logged_in.get_flag():
             logging.warning('Oops. We got logged out. Attempting to log back in...!')
             if self.login() != Status.SUCCESS:
                 return Status.ERROR
-            else:
-                self.navigate()
-                return Status.FAILURE
         else:
             return Status.SUCCESS
 
-    def __reset_error_counter(self, bu_course: BUCourse):
+    def __reset_error_counter(self, bu_course: BUCourseSection):
         # TODO: improve with bettering logging
 
         if self.all_consecutive_error_counter.get() > 0:
@@ -549,23 +594,24 @@ class Registrar:
 
         if self.course_consecutive_error_counter[bu_course] != 0:
             logging.debug(f'Course error counter reset from '
-                         f'{self.course_consecutive_error_counter[bu_course]} for course {bu_course}!')
+                          f'{self.course_consecutive_error_counter[bu_course]} for course {bu_course}!')
             self.course_consecutive_error_counter[bu_course] = 0
 
-    def __increment_error_counter(self, bu_course: BUCourse):
+    def __increment_error_counter(self, bu_course: BUCourseSection):
         self.course_consecutive_error_counter[bu_course] += 1
         self.all_consecutive_error_counter.increment(1)
         logging.debug(f'Course error counter incremented to '
-                     f'{self.course_consecutive_error_counter[bu_course]}/{PER_COURSE_RETRY_LIMIT}')
+                      f'{self.course_consecutive_error_counter[bu_course]}/{PER_COURSE_RETRY_LIMIT}')
         logging.debug(f'Global error counter incremented to '
-                     f'{self.all_consecutive_error_counter.get()}/{TOTAL_RETRY_LIMIT}')
+                      f'{self.all_consecutive_error_counter.get()}/{TOTAL_RETRY_LIMIT}')
 
-    def __get_parameters(self, bu_course: BUCourse):
+    def __get_parameters(self, bu_course: BUCourseSection):
+        semester = bu_course.course.semester
         college, dept, course_code, section = \
-            bu_course.college, \
-                bu_course.department, \
-                bu_course.course_code, \
-                bu_course.section
+            bu_course.course.college, \
+                bu_course.course.department, \
+                bu_course.course.course_code, \
+                bu_course.section.section
         return {
             'College': college.upper(),
             'Dept': dept.upper(),
@@ -574,8 +620,8 @@ class Registrar:
             'ModuleName': 'reg/add/browse_schedule.pl',
             'AddPreregInd': '',
             'AddPlannerInd': 'Y' if self.is_planner else '',
-            'ViewSem': self.semester.semester_season.name + ' ' + str(self.semester.semester_year),
-            'KeySem': self.semester_key,
+            'ViewSem': semester.semester_season.name + ' ' + str(semester.semester_year),
+            'KeySem': semester.to_semester_key(),
             'PreregViewSem': '',
             'SearchOptionCd': 'S',
             'SearchOptionDesc': 'Class Number',

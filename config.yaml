@@ -1,12 +1,10 @@
 # Put your license key for this software here. Without this key,
 # you will not be able to use the full features of this software :(
-license-key: ''
+license-key: 'abcd'
 
 # Kerberos Username: this is most likely the 'user' part of your
 #  user@bu.edu email.
-# (Note: due to security reasons, you cannot save your password
-# into this config and must enter it every time manually!)
-kerberos-user: 'example'
+kerberos-user: 'aseef'
 
 # Whether to enable REAL registrations. When this is set to
 # 'True', courses will only be added to the planner. It is
@@ -34,8 +32,6 @@ target-semester: 'Spring 2024'
 # Example: CAS CS 111 A1
 course-list:
   - CAS CS 111 A1
-  - CAS CS 131 A1
-  - CAS CS 131 A3
 
 # If you are trying to register for a course that does not exist,
 # should the bot complain (maybe you made a mistake)?? If not set this to True.

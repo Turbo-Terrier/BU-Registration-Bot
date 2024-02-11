@@ -38,6 +38,10 @@ class Semester:
     def __hash__(self):
         return hash((self.semester_season, self.semester_year))
 
+    @staticmethod
+    def from_json(json_obj):
+        return Semester(semester_season_from_string(json_obj['semester_season']), json_obj['semester_year'])
+
 
 
 def semester_season_from_string(season_str: str) -> SemesterSeason:
