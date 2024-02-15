@@ -11,6 +11,7 @@ from core import util
 from core.licensing import cloud_util
 from core.licensing.cloud_actions import MembershipLevel
 from core.registrar import Registrar, Status
+from core.semester import Semester, SemesterSeason
 from core.util import LogColors
 from core.util import color_message
 
@@ -21,7 +22,7 @@ def main() -> int:
 
     license_key = "HNLwtHPCaIufrqAsqpwpOekZscxpgjHDJuKfBtcwdDhyvZEUupscirdggvOrCJgL"
 
-    logging.debug("Connecting...")
+    logging.info("Connecting to the cloud server...")
     # check license
     kerberos_username, config, membership, session_id = cloud_util.check_license_and_start_session(
         license_key
@@ -32,6 +33,10 @@ def main() -> int:
         logging.debug("Debug mode has been enabled.")
     else:
         util.register_logger(False, config.console_colors)
+
+    # start the ping task
+    # todo: since this is async, it still tries to ping after the app has initiated shutdown
+    cloud_util.start_ping_task(license_key, session_id)
 
     logging.debug("Testing browser drivers by booting up a dummy browser...")
     service = Service(executable_path=config.custom_driver.driver_path) if config.custom_driver.enabled else Service()
@@ -124,9 +129,6 @@ def main() -> int:
 
     assert session_id != -1  # should never trigger
 
-    # start the ping task
-    cloud_util.start_ping_task(license_key, session_id)
-
     # confirmation
     logging.info(color_message("Based on configured options in", LogColors.BRIGHT_GREEN) +
                  color_message(" 'config.yml' ", LogColors.YELLOW) +
@@ -153,6 +155,9 @@ def main() -> int:
             logging.critical('Login failed! Invalid credentials?')
             registrar.graceful_exit()
             return 1
+        time.sleep(3)
+        registrar.navigate(semester=Semester(SemesterSeason.Spring, 2024))
+        time.sleep(5)
         if registrar.find_courses() == Status.SUCCESS:
             logging.info('Successfully registered for all courses :)')
 

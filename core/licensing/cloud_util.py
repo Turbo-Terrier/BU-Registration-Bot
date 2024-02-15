@@ -53,9 +53,9 @@ def check_license_and_start_session(license_key: str) -> Tuple[str, UserApplicat
     return kerberos_username, config, membership, session_id
 
 
-def send_course_register_update(license_key: str, session_id: int, course_id: int, course_section: str) -> ResponseStatus:
+def send_course_register_update(license_key: str, session_id: int, planner: bool, course_id: int, course_section: str) -> ResponseStatus:
     send_timestamp = util.get_new_york_timestamp()
-    resp = RegistrationNotification(license_key, session_id, course_id, course_section, send_timestamp).send_and_get_response()
+    resp = RegistrationNotification(license_key, session_id, planner, course_id, course_section, send_timestamp).send_and_get_response()
     if resp is None:
         # probably will never actually happen
         logging.error("Error. Your license key no longer exists (for some reason)? Please contact the developer.")

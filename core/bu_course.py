@@ -3,44 +3,6 @@ from typing import Optional
 from core.semester import Semester
 
 
-class OldBUCourse:
-    semester: Semester
-    college: str
-    department: str
-    course_code: str
-    section: str
-
-    def __init__(self, semester: Semester, college: str, dept: str, course_code: str, section: str):
-        self.semester = semester
-        self.college = college
-        self.department = dept
-        self.course_code = course_code
-        self.section = section
-
-    def __json__(self):
-        return {
-            "semester": self.semester.__json__(),
-            "college": self.college,
-            "department": self.department,
-            "course_code": self.course_code,
-            "section": self.section
-        }
-
-    def __str__(self):
-        return '[' + str(self.semester) + '] ' + \
-            self.college.upper() + ' ' + self.department.upper() + \
-            self.course_code + ' ' + self.section.upper()
-
-    def __eq__(self, other):
-        if not isinstance(other, OldBUCourse):
-            return False
-        return (self.semester, self.college, self.department, self.course_code, self.section) == (
-            other.semester, other.college, other.department, other.course_code, other.section)
-
-    def __hash__(self):
-        return hash((self.semester, self.college, self.department, self.course_code, self.section))
-
-
 class BUCourse:
     course_id: int
     semester: Semester
@@ -74,6 +36,7 @@ class BUCourse:
     def __str__(self):
         return '[' + str(self.semester) + '] ' + \
             self.college.upper() + ' ' + self.department.upper() + self.course_code
+
     def __eq__(self, other):
         if not isinstance(other, BUCourse):
             return False
@@ -188,3 +151,11 @@ class BUCourseSection:
             CourseSection.from_json(json_obj['section']),
             json_obj['existence_confirmed']
         )
+
+    def get_registration_string(self):
+        bu_course = self.course
+        bu_course_section = self.section
+        return bu_course.college + ' ' + \
+            bu_course.department + str(bu_course.course_code) + \
+            ('S' if bu_course.semester.semester_season.is_summer() else ' ') + \
+            bu_course_section.section

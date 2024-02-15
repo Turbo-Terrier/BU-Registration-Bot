@@ -92,7 +92,7 @@ class Registrar:
         logging.debug(f"User's CPU count is {os.cpu_count()}.")
 
         self.session_id = session_id
-        options = util.get_chrome_options()
+        options = util.get_chrome_options(config.debug_mode)
         service = Service(
             executable_path=config.custom_driver.driver_path
         ) if config.custom_driver.enabled else Service()
@@ -119,13 +119,22 @@ class Registrar:
         self.thread_pool.shutdown(wait=False)
         logging.info('Logging off...')
         self.logout()
+        logging.info('Sending termination notice to backend...')
+        cloud_util.send_app_terminated(self.license_key,
+                                       self.session_id,
+                                       RegistrationResult(
+                                           Status.ERROR,
+                                           False,
+                                           "TODO",
+                                           0, 0, 0, 0
+                                       ))
         logging.info('Closing browser...')
         try:
-            self.driver.close()
             self.driver.quit()
         except Exception:
-            print()
             # do nothing
+            ...
+
 
     def __duo_login(self):
         try:
@@ -182,6 +191,7 @@ class Registrar:
         self.driver.find_element(By.ID, 'j_password').send_keys(password)
         self.driver.find_element(By.CLASS_NAME, 'input-submit').click()
         logging.debug(f"Password entered, and login button has been clicked.")
+        time.sleep(1)
 
         bad_user_elems = self.driver.find_elements(By.CLASS_NAME, 'error-box')
         if len(bad_user_elems) > 0:
@@ -232,7 +242,7 @@ class Registrar:
             plan.find_element(By.TAG_NAME, 'a').click()
         else:
             register.find_element(By.TAG_NAME, 'a').click()
-        time.sleep(0.5)
+        time.sleep(0.25)
 
     '''
     Finds course listing and tries to register for the class.
@@ -338,6 +348,7 @@ class Registrar:
                     self.target_courses.remove(registrable_course)
                     cloud_util.send_course_register_update(self.license_key,
                                                            self.session_id,
+                                                           self.is_planner,
                                                            registrable_course.course.course_id,
                                                            registrable_course.section.section)
                 elif result == Status.FAILURE:
@@ -422,7 +433,7 @@ class Registrar:
                 course_id_tag = table_columns[0]
 
                 # self note: the spaces inside this text are really \xa0 but selenium seems to take care of that
-                if course_name_tag.text == str(course):
+                if course_name_tag.text == course.get_registration_string():
                     found = True
                     try:
                         # this call will produce an error if the class is blocked from registration
@@ -530,19 +541,19 @@ class Registrar:
                 course_id_tag: Union[Tag, NavigableString] = table_columns[0]
                 course_name_str = course_name_tag.text.replace('\xa0', ' ')
 
-                if course_name_str == str(course):
+                # Note: course codes for summer are suffixed with an S
+                if course_name_str == course.get_registration_string():
                     # TODO: add a debug message displaying the reason class is closed
                     #  and the number of seats
                     if course_id_tag.select_one(selector="input[name='SelectIt']"):
                         return Status.SUCCESS
                     else:
                         return Status.FAILURE
-                else:
-                    logging.warning(f"Warning. The course \'{course}\' does not exist (yet?). Ignoring this error "
-                                    f"based on the bot configurations.")
-                    return Status.FAILURE
 
-        except (Exception) as e:
+            logging.warning(f"Warning. The course \'{course}\' does not exist (yet?).")
+            return Status.FAILURE
+
+        except Exception as e:
 
             if self.driver.title == "Boston University | Login" or \
                     page_title == 'Web Login Service - Message Security Error':
@@ -575,7 +586,6 @@ class Registrar:
         if len(split_2) < 1:
             return None
         return split_2[0]
-
 
     def __check_if_logged_out(self) -> Status:
         if self.driver.title == "Boston University | Login" or not self.is_logged_in.get_flag():

@@ -302,15 +302,17 @@ class SessionPing(SendableCloudMessage):
 class RegistrationNotification(SendableCloudMessage):
     license_key: str
     session_id: int
+    planner: bool
     course_id: int
     course_section: str
     timestamp: int
 
-    def __init__(self, license_key: str, session_id: int, course_id: int, course_section: str,
+    def __init__(self, license_key: str, session_id: int, planner: bool, course_id: int, course_section: str,
                  timestamp: int):
         super().__init__("/course-registered")
         self.license_key = license_key
         self.session_id = session_id
+        self.planner = planner
         self.course_id = course_id
         self.course_section = course_section
         self.timestamp = timestamp
@@ -319,7 +321,8 @@ class RegistrationNotification(SendableCloudMessage):
         return {
             "license_key": self.license_key,
             "session_id": self.session_id,
+            "planner": self.planner,
             "course_section": self.course_section,
-            "course": self.course_id,
+            "course_id": self.course_id,
             "timestamp": self.timestamp
         }

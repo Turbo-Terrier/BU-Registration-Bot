@@ -9,6 +9,9 @@ class SemesterSeason(Enum):
     Fall = 3
     Spring = 4,
 
+    def is_summer(self):
+        return self == SemesterSeason.Summer1 or self == SemesterSeason.Summer2
+
 
 class Semester:
     semester_season: SemesterSeason
@@ -19,7 +22,10 @@ class Semester:
         self.semester_year = semester_year
 
     def to_semester_key(self):
-        return str(self.semester_year) + self.semester_season.name.lower() + str(self.semester_season.value)
+        key_year = self.semester_year + 1 \
+            if (self.semester_season != SemesterSeason.Spring) \
+            else self.semester_year
+        return str(key_year) + str(self.semester_season.value[0])
 
     def __json__(self):
         return {
