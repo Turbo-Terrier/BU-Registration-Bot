@@ -1,4 +1,5 @@
 import concurrent.futures
+import json
 import logging
 import os
 import statistics
@@ -16,7 +17,7 @@ from selenium.common import NoSuchElementException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 
-from core import util
+from core import util, secure_storage_handler
 from core.bu_course import BUCourseSection
 from core.configuration import UserApplicationSettings
 from core.licensing import cloud_util
@@ -99,6 +100,10 @@ class Registrar:
         logging.debug(f"Initializing chrome driver with service_url={service.service_url} path={service.path}...")
         self.driver = webdriver.Chrome(options=options, service=service)
         self.driver.set_page_load_timeout(30)
+        if config.save_duo_cookies and secure_storage_handler.has_duo_cookies():
+            logging.info("Loading Duo cookies from secure local storage...")
+            print(secure_storage_handler.get_duo_cookies())
+            util.load_cookies_chrome(self.driver, secure_storage_handler.get_duo_cookies())
         logging.debug(f"Browser initialized!")
 
         self.config = config
@@ -135,8 +140,7 @@ class Registrar:
             # do nothing
             ...
 
-
-    def __duo_login(self):
+    def __duo_login(self) -> Status:
         try:
             # also check if Duo has timed us out...
             failure_elements = self.driver.find_elements(By.ID, 'error-view-header-text')
@@ -150,6 +154,7 @@ class Registrar:
             dont_trust_elements = self.driver.find_elements(By.ID, 'trust-browser-button')
             if len(dont_trust_elements) > 0:
                 dont_trust_elements[0].click()
+            return Status.SUCCESS
         except NoSuchElementException:
             logging.critical('Unexpected page. Something went wrong. Dumping page...')
             logging.critical(self.driver.page_source)
@@ -187,31 +192,47 @@ class Registrar:
 
         self.driver.get(f"{STUDENT_LINK_URL}?ModuleName=regsched.pl")
         logging.debug(f"Login page loaded at url={self.driver.current_url}.")
-        self.driver.find_element(By.ID, 'j_username').send_keys(username)
-        self.driver.find_element(By.ID, 'j_password').send_keys(password)
-        self.driver.find_element(By.CLASS_NAME, 'input-submit').click()
-        logging.debug(f"Password entered, and login button has been clicked.")
-        time.sleep(1)
+        # its possible it jumps straight to the student link or duo page if we have cookies
+        if 'studentlink' not in self.driver.current_url and 'duosecurity' not in self.driver.current_url:
+            self.driver.find_element(By.ID, 'j_username').send_keys(username)
+            self.driver.find_element(By.ID, 'j_password').send_keys(password)
+            self.driver.find_element(By.CLASS_NAME, 'input-submit').click()
+            logging.debug(f"Password entered, and login button has been clicked.")
+            time.sleep(1)
 
-        bad_user_elems = self.driver.find_elements(By.CLASS_NAME, 'error-box')
-        if len(bad_user_elems) > 0:
-            logging.critical('Error:', bad_user_elems[0].find_element(By.CLASS_NAME, 'error').text)
-            self.driver.close()
-            return Status.ERROR
+            bad_user_elems = self.driver.find_elements(By.CLASS_NAME, 'error-box')
+            if len(bad_user_elems) > 0:
+                # means wrong username or password
+                logging.critical('Error:', bad_user_elems[0].find_element(By.CLASS_NAME, 'error').text)
+                secure_storage_handler.set_kerberos_password(None)
+                self.driver.close()
+                return Status.ERROR
 
         duo_messaged = False
         while 'studentlink' not in self.driver.current_url:
             logging.debug(f"Now on the page with the title {self.driver.title} at url={self.driver.current_url}")
-            if 'duosecurity' in self.driver.current_url:
+            if 'duosecurity' in self.driver.current_url and self.driver.find_element(
+                    By.XPATH,
+                    "//body/div[@class='app']/div[@class='main']/div[contains(@class, 'card')]"
+            ):
                 if not duo_messaged:
                     logging.info('Waiting for you to approve this login on Duo...')
                     duo_messaged = True
+                    secure_storage_handler.set_duo_cookies(None)
                 # if duo login false, we fail
                 status = self.__duo_login()
                 if status == Status.FAILURE or status == Status.ERROR:
                     return status
                 # wait a couple sec
                 time.sleep(2)
+
+        if self.config.save_duo_cookies and \
+                (not secure_storage_handler.has_duo_cookies() or
+                 not util.get_all_cookies(self.driver).__eq__(json.dumps(secure_storage_handler.get_duo_cookies()))):
+            secure_storage_handler.set_duo_cookies(util.get_all_cookies(self.driver))
+            logging.info(
+                'Saved your Duo cookies to secure local storage based on your configured preferences...'
+            )
 
         logging.info(F'Successfully logged into {username}\'s account!')
         self.is_logged_in.set_flag(True)
@@ -273,7 +294,7 @@ class Registrar:
                         'Number of successive failures has reached its threshold. We can no longer continue.')
                     return Status.ERROR
 
-            # if all courses have reached their respective error threshold (shouldnt happen)
+            # if all courses have reached their respective error threshold (shouldn't happen)
             all_courses_failed = True
             for course in self.target_courses:
                 if self.course_consecutive_error_counter[course] <= PER_COURSE_RETRY_LIMIT or self.config.keep_trying:

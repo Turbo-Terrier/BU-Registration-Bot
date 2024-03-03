@@ -6,10 +6,11 @@ from logging.handlers import TimedRotatingFileHandler
 
 import psutil
 import pytz
+from selenium import webdriver
+from selenium.webdriver.chrome.webdriver import WebDriver
 
 from core.licensing.cloud_actions import DeviceMeta
 from core.logging_formatter import LogColors, CustomFormatter
-from selenium import webdriver
 
 
 def get_logs_dir() -> str:
@@ -39,6 +40,29 @@ def get_chrome_options(debug=False):
     options.add_argument('--blink-settings=imagesEnabled=false')  # disable image loading to speed stuff up a bit
     return options
 
+
+# adapted from https://stackoverflow.com/questions/63220248/how-to-preload-cookies-before-first-request-with-python3-selenium-chrome-webdri
+# documentation: https://chromedevtools.github.io/devtools-protocol/tot/Network/
+def load_cookies_chrome(driver: WebDriver, cookies: list[dict]):
+    # Enables network tracking so we may use Network.setCookie method
+    driver.execute_cdp_cmd('Network.enable', {})
+
+    # Iterate through pickle dict and add all the cookies
+    for cookie in cookies:
+        # Fix issue Chrome exports 'expiry' key but expects 'expires' on import
+        if 'expiry' in cookie:
+            cookie['expires'] = cookie['expiry']
+            cookie.pop('expiry')
+
+        # Set the actual cookie
+        driver.execute_cdp_cmd('Network.setCookie', cookie)
+
+    # Disable network tracking
+    driver.execute_cdp_cmd('Network.disable', {})
+
+
+def get_all_cookies(driver: WebDriver) -> list[dict]:
+    return driver.execute_cdp_cmd('Network.getAllCookies', {})['cookies']
 
 def get_device_meta() -> DeviceMeta:
     # Get core count
