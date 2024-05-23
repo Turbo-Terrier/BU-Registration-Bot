@@ -1,3 +1,5 @@
+Note: After BU updated their course registration site, this no longer works.
+
 ## Installation
 
 ### Prerequisites
@@ -31,16 +33,3 @@ The basic steps for installation are as follows. Please note, on some systems, a
 `source env/bin/activate`
 
 `pip3 install -r ./requirements.txt`
-
-### Usage
-
-```pyinstaller -F main.py```
-
-`pyarmor gen --enable-jit --assert-call --assert-import --restrict --platform windows.x86_64 --platform linux.x86_64 --platform linux.aarch64 --platform linux.armv7 --platform darwin.x86_64 main.py ./`
-python3.7 -m pyarmor.cli gen --enable-jit --assert-call --assert-import --restrict --platform windows.x86_64 --platform linux.x86_64 --platform linux.aarch64 --platform linux.armv7 --platform darwin.x86_64 -O py3.7-dist main.py ./core
-python3.8 -m pyarmor.cli gen --enable-jit --assert-call --assert-import --restrict --platform windows.x86_64 --platform linux.x86_64 --platform linux.aarch64 --platform linux.armv7 --platform darwin.x86_64 -O py3.8-dist main.py ./core
-python3.9 -m pyarmor.cli gen --enable-jit --assert-call --assert-import --restrict --platform windows.x86_64 --platform linux.x86_64 --platform linux.aarch64 --platform linux.armv7 --platform darwin.x86_64 -O py3.9-dist main.py ./core
-python3.10 -m pyarmor.cli gen --enable-jit --assert-call --assert-import --restrict --platform windows.x86_64 --platform linux.x86_64 --platform linux.aarch64 --platform linux.armv7 --platform darwin.x86_64 -O py3.10-dist main.py ./core
-python3.11 -m pyarmor.cli gen --enable-jit --assert-call --assert-import --restrict --platform windows.x86_64 --platform linux.x86_64 --platform linux.aarch64 --platform linux.armv7 --platform darwin.x86_64 -O py3.11-dist main.py ./core
-
-python3.11 -m pyarmor.cli.merge -O dist py3.7-dist py3.8-dist py3.9-dist 
